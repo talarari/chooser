@@ -106,7 +106,18 @@ function enterRoom(code) {
   landing.hidden = true
   app.hidden = false
 
-  net = connect(code, {
+  net = joinNet(code)
+
+  requestWakeLock()
+  resize()
+  if (!loopStarted) {
+    loopStarted = true
+    requestAnimationFrame(tick)
+  }
+}
+
+function joinNet(code) {
+  return connect(code, {
     onFingers: (data, peerId) => {
       const peer = ensurePeer(peerId)
       peer.fingers = new Map(Object.entries(data))
@@ -124,13 +135,28 @@ function enterRoom(code) {
     },
     onPeerLeave: (peerId) => peers.delete(peerId),
   })
+}
 
-  requestWakeLock()
-  resize()
-  if (!loopStarted) {
-    loopStarted = true
-    requestAnimationFrame(tick)
+// Mobile browsers freeze the page when the screen locks or the tab is
+// backgrounded for a while; WebRTC connections and relay traffic silently
+// die. After a long suspension, rejoin the room with fresh connections.
+const REJOIN_AFTER_HIDDEN_MS = 15000
+let hiddenAt = null
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now()
+  } else if (net && hiddenAt && Date.now() - hiddenAt > REJOIN_AFTER_HIDDEN_MS) {
+    rejoinRoom()
   }
+})
+
+function rejoinRoom() {
+  try { net.leave() } catch {}
+  peers.clear()
+  localFingers.clear()
+  reset()
+  net = joinNet(roomCode)
 }
 
 const hashCode = normalizeCode(location.hash.slice(1))

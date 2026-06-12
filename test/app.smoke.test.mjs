@@ -20,6 +20,7 @@ export const selfId = 'selfPeer0001'
 export const getRelaySockets = () => ({})
 export const defaultRelayUrls = ['wss://d1', 'wss://d2', 'wss://d3', 'wss://d4', 'wss://d5', 'wss://d6']
 export function joinRoom(config, roomId) {
+  globalThis.__joins = (globalThis.__joins ?? 0) + 1
   const actions = {}
   const room = {
     makeAction: (name) => (actions[name] = {
@@ -69,7 +70,7 @@ before(async () => {
   globalThis.__sent = []
   globalThis.document = {
     querySelector: (s) => (els[s] ??= el(s.slice(1))),
-    addEventListener: () => {},
+    addEventListener: (t, fn) => { (listeners['document:' + t] ||= []).push(fn) },
     visibilityState: 'visible',
   }
   globalThis.window = {
@@ -174,6 +175,33 @@ test('renaming yourself broadcasts, remote names appear in the banner', () => {
   actions.fingers.onMessage({}, {peerId: 'zzzRemotePeer'})
   step(9000, 20)
   assert.ok(globalThis.document.querySelector('#banner').hidden)
+})
+
+test('rejoins the room after a long page suspension', () => {
+  const joinsBefore = globalThis.__joins
+  const fireVisibility = (state) => {
+    globalThis.document.visibilityState = state
+    for (const fn of listeners['document:visibilitychange']) fn()
+  }
+
+  // a short tab switch should NOT trigger a rejoin
+  fireVisibility('hidden')
+  fireVisibility('visible')
+  assert.equal(globalThis.__joins, joinsBefore, 'short hide should not rejoin')
+
+  // a long suspension (screen lock) should rejoin with fresh connections
+  fireVisibility('hidden')
+  const realNow = Date.now
+  Date.now = () => realNow() + 20000
+  try {
+    fireVisibility('visible')
+  } finally {
+    Date.now = realNow
+  }
+  assert.equal(globalThis.__joins, joinsBefore + 1, 'long hide should rejoin')
+  assert.equal(globalThis.__mock.roomId, 'TEST', 'should rejoin the same room')
+  assert.equal(typeof globalThis.__mock.actions.fingers.onMessage, 'function',
+    'handlers should be re-wired on the fresh room')
 })
 
 test('no runtime errors were surfaced to the on-screen toast', () => {
