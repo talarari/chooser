@@ -2,7 +2,8 @@
 // relays, so the whole app runs without any server of our own. The bundle is
 // vendored (see vendor/) so there is no runtime CDN dependency either.
 
-import {joinRoom, selfId, getRelaySockets} from '../vendor/trystero-nostr.min.js'
+import {joinRoom, selfId, getRelaySockets, defaultRelayUrls} from '../vendor/trystero-nostr.min.js'
+import {hashStr, mulberry32} from './chooser.js'
 
 export {selfId}
 
@@ -10,7 +11,7 @@ const APP_ID = 'finger-chooser-webrtc-v1'
 
 // Pin well-established public relays instead of trystero's appId-derived
 // default picks, which proved unreliable for peer discovery in practice.
-const RELAY_URLS = [
+const PINNED_RELAY_URLS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.primal.net',
@@ -18,6 +19,21 @@ const RELAY_URLS = [
   'wss://nostr.mom',
   'wss://relay.nostr.band',
 ]
+
+// Always-on fallback in case the pinned list rots: a draw from trystero's
+// default relay pool, shuffled deterministically from the app id so every
+// client computes the same draw and is guaranteed to share these relays.
+function fallbackRelays(count) {
+  const pool = defaultRelayUrls.filter((url) => !PINNED_RELAY_URLS.includes(url))
+  const rand = mulberry32(hashStr(APP_ID))
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+  }
+  return pool.slice(0, count)
+}
+
+const RELAY_URLS = [...PINNED_RELAY_URLS, ...fallbackRelays(4)]
 
 export function relayStatus() {
   const sockets = Object.values(getRelaySockets())

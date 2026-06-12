@@ -18,6 +18,7 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
 const VENDOR_MOCK = `
 export const selfId = 'selfPeer0001'
 export const getRelaySockets = () => ({})
+export const defaultRelayUrls = ['wss://d1', 'wss://d2', 'wss://d3', 'wss://d4', 'wss://d5', 'wss://d6']
 export function joinRoom(config, roomId) {
   const actions = {}
   const room = {
@@ -90,6 +91,10 @@ test('joining from the URL hash wires up the room', () => {
   assert.equal(globalThis.__mock.roomId, 'TEST')
   assert.ok(globalThis.__mock.config.relayConfig.urls.length >= 4,
     'pinned relay list should be passed to trystero')
+  const urls = globalThis.__mock.config.relayConfig.urls
+  assert.equal(new Set(urls).size, urls.length, 'relay list should have no duplicates')
+  assert.equal(urls.filter((u) => u.startsWith('wss://d')).length, 4,
+    'four fallback relays should be drawn from the default pool')
   assert.equal(typeof globalThis.__mock.actions.fingers.onMessage, 'function')
   assert.equal(typeof globalThis.__mock.actions.pick.onMessage, 'function')
   assert.equal(typeof globalThis.__mock.actions.name.onMessage, 'function')
