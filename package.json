@@ -1,0 +1,11 @@
+{
+  "name": "chooser",
+  "private": true,
+  "type": "module",
+  "description": "Multiplayer finger chooser over WebRTC — client-only, no server",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "node build.mjs",
+    "start": "python3 -m http.server 8080"
+  }
+}
