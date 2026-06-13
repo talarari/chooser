@@ -45,11 +45,14 @@ const probe = () => {
 }
 
 const gotRelayCandidate = (page) =>
-  page.waitForFunction(() => window.__relayCand, null, {timeout: 20000}).then(() => true, () => false)
+  page.waitForFunction(() => window.__relayCand, null, {timeout: 40000}).then(() => true, () => false)
 
+// 60s: the forced-relay path over real Cloudflare TURN can take ~30s to open —
+// with trickle off each peer waits for ICE gathering to complete across all of
+// Cloudflare's TURN transports before sending its offer.
 const hasPeers = (page) => page.waitForFunction(
   () => document.querySelector('#peer-count')?.textContent.includes('2 device'),
-  null, {timeout: 30000})
+  null, {timeout: 60000})
 
 function turnSuite(engine, label) {
   describe(`${label} ↔ ${label} over TURN (forced relay)`, () => {

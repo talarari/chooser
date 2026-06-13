@@ -39,9 +39,13 @@ async function press(page, id, fx, fy) {
   }, {id, fx, fy})
 }
 
+// 60s, not 30s: the forced-relay path (WebKit over Cloudflare TURN) can take
+// ~30s to open — with trickle off each peer waits for ICE gathering to complete
+// across all of Cloudflare's TURN transports before it even sends its offer.
+// Direct (Chromium) still resolves in a second or two, well under this ceiling.
 const hasPeers = (page) => page.waitForFunction(
   () => document.querySelector('#peer-count')?.textContent.includes('2 device'),
-  null, {timeout: 30000})
+  null, {timeout: 60000})
 
 const bannerShown = (page) => page.waitForFunction(
   () => !document.querySelector('#banner').hidden, null, {timeout: 20000})
