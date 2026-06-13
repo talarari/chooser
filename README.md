@@ -37,11 +37,17 @@ Unit + smoke tests cover the deterministic selection logic in `js/chooser.js` an
 
 ```sh
 npm install            # devDeps: playwright + ws
-npm run e2e:install    # one-time: download the Chromium binary
-npm run e2e
+npm run e2e:install    # one-time: download the Chromium + WebKit binaries
+npm run e2e            # Chromium↔Chromium (the regression guard)
+npm run e2e:webkit     # WebKit↔WebKit (Safari smoke — see below)
+npm run e2e:all        # both engines
 ```
 
-A hermetic Chromium↔Chromium test (`test/e2e/`) drives **two real browser pages** through a full round over **real `RTCPeerConnection`/data channels**. It needs no public network: the pages connect via loopback host candidates, and signaling runs through a tiny local Nostr relay (`test/e2e/relay.mjs`, minimal NIP-01) that the app is pointed at with a `?relays=ws://localhost:…` test seam in `js/net.js`. It asserts both peers reach "2 devices", a finger drawn on one page renders remotely on the other, and a held pick yields one winner both pages agree on — the guard that catches networking regressions the mocked tests can't see.
+A hermetic Chromium↔Chromium test (`test/e2e/`) drives **two real browser pages** through a full round over **real `RTCPeerConnection`/data channels**. It needs no public network: the pages connect via loopback host candidates, and signaling runs through a tiny local Nostr relay (`test/e2e/relay.mjs`, minimal NIP-01) that the app is pointed at with a `?relays=ws://localhost:…` test seam in `js/net.js`. It asserts both peers reach "2 devices", a finger drawn on one page renders remotely on the other, and a held pick yields one winner both pages agree on — the guard that catches networking regressions the mocked tests can't see. The suite is parametrised by engine in `test/e2e/suite.mjs`.
+
+#### Safari (WebKit) smoke — `npm run e2e:webkit`
+
+The same suite runs against Playwright's **WebKit**, the engine behind Safari — the closest stand-in for iPhone Safari available on Linux/CI (issue #2). **It currently fails**, and on purpose: WebKit gathers only mDNS `.local` host candidates, each with a different obfuscated hostname that the peer can't resolve over loopback, so no candidate pair forms and the peers never reach "2 devices". That's the same class of failure real Safari hits on a LAN without a TURN fallback — so this test reproduces the bug rather than masking it, and is wired into CI as a **non-blocking** job (`continue-on-error`, absent from deploy's `needs`) that will flip green once the TURN fix from issue #2 lands. Caveat: WebKit-on-Linux is **not** Safari and its WebRTC differs from real iOS Safari, so a real iPhone (or a cloud device lab) remains the source of truth.
 
 ## Deploy to GitHub Pages
 

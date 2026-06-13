@@ -37,6 +37,25 @@ jobs:
       - run: npm run e2e:install
       - run: npm run e2e
 
+  # WebKit (Safari's engine) over the same hermetic harness — the closest
+  # stand-in for iPhone Safari on Linux/CI (issue #2). It currently FAILS:
+  # WebKit gathers only mDNS .local host candidates that don't resolve over
+  # loopback, so no peer connection forms — the same class of failure real
+  # Safari hits without a TURN fallback. Kept non-blocking (continue-on-error,
+  # and absent from deploy's `needs`) so it surfaces the Safari status without
+  # gating deploys, and flips green on its own once the TURN fix lands.
+  e2e-webkit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run e2e:install
+      - run: npm run e2e:webkit
+
   deploy:
     needs: [test, e2e]
     # Validate on PRs, but only publish on pushes to main (or manual dispatch).
