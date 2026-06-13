@@ -61,7 +61,13 @@ jobs:
       - run: npm ci
       - run: npm run e2e:install
       - run: npm run e2e:webkit
+        # The Worker URL is public (CORS-locked, no secret), so set it here to
+        # actually exercise the Cloudflare TURN relay path in CI instead of
+        # skipping. The Worker always allows localhost, which is the origin the
+        # e2e server runs on.
       - run: npm run e2e:turn
+        env:
+          TURN_WORKER_URL: https://chooser-turn.talarari.workers.dev
 
   deploy:
     needs: [test, e2e]
