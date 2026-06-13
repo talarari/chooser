@@ -72,6 +72,16 @@ const RELAY_URLS = relayOverride() ?? [...PINNED_RELAY_URLS, ...fallbackRelays(4
 // tests/local dev.
 const TURN_ENDPOINT = 'https://chooser-turn.talarari.workers.dev'
 
+let lastTurnFetch = {
+  endpoint: TURN_ENDPOINT,
+  attempted: false,
+  ok: false,
+  durationMs: null,
+  iceServerCount: 0,
+  iceServerUrls: [],
+  error: null,
+}
+
 // Test seam: `?turn=<url>` overrides the Worker endpoint (point the e2e at a
 // local `wrangler dev`), and `?turn=` (empty) disables TURN entirely.
 function turnEndpoint() {
@@ -90,17 +100,38 @@ function turnEndpoint() {
 // before TURN existed. The 3s timeout caps how long a join can wait on it.
 async function fetchTurnServers() {
   const endpoint = turnEndpoint()
+  lastTurnFetch = {
+    endpoint,
+    attempted: Boolean(endpoint),
+    ok: false,
+    durationMs: null,
+    iceServerCount: 0,
+    iceServerUrls: [],
+    error: null,
+  }
   if (!endpoint) return []
+  const started = performance.now()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 3000)
   try {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 3000)
     const res = await fetch(endpoint, {signal: ctrl.signal})
-    clearTimeout(timer)
-    if (!res.ok) return []
+    lastTurnFetch.durationMs = Math.round(performance.now() - started)
+    if (!res.ok) {
+      lastTurnFetch.error = `HTTP ${res.status}`
+      return []
+    }
     const {iceServers} = await res.json()
-    return iceServers ? [].concat(iceServers) : []
-  } catch {
+    const servers = iceServers ? [].concat(iceServers) : []
+    lastTurnFetch.ok = true
+    lastTurnFetch.iceServerCount = servers.length
+    lastTurnFetch.iceServerUrls = servers.flatMap(({urls}) => [].concat(urls ?? []))
+    return servers
+  } catch (error) {
+    lastTurnFetch.durationMs = Math.round(performance.now() - started)
+    lastTurnFetch.error = error?.name === 'AbortError' ? 'timeout' : error?.message ?? String(error)
     return []
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -119,6 +150,20 @@ function forceRelayOnly() {
 export function relayStatus() {
   const sockets = Object.values(getRelaySockets())
   return {open: sockets.filter((s) => s.readyState === 1).length, total: sockets.length}
+}
+
+export function networkDiagnostics() {
+  const sockets = getRelaySockets()
+  return {
+    appId: APP_ID,
+    relayUrls: RELAY_URLS,
+    relays: Object.entries(sockets).map(([url, socket]) => ({
+      url,
+      readyState: socket.readyState,
+    })),
+    turn: lastTurnFetch,
+    forceRelayOnly: forceRelayOnly(),
+  }
 }
 
 export async function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, onPeerLeave}) {

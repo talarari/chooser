@@ -77,12 +77,30 @@ before(async () => {
     querySelector: (s) => (els[s] ??= el(s.slice(1))),
     addEventListener: (t, fn) => { (listeners['document:' + t] ||= []).push(fn) },
     visibilityState: 'visible',
+    hasFocus: () => true,
   }
   globalThis.window = {
     addEventListener: (t, fn) => { (listeners['window:' + t] ||= []).push(fn) },
     devicePixelRatio: 2,
+    innerWidth: 800,
+    innerHeight: 600,
+    isSecureContext: true,
   }
-  globalThis.location = {hash: '#TEST', origin: 'http://x', pathname: '/'}
+  globalThis.screen = {width: 800, height: 600}
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      userAgent: 'node-smoke-test',
+      platform: 'test',
+      language: 'en-US',
+      onLine: true,
+      clipboard: {
+        lastText: '',
+        writeText: async (text) => { globalThis.navigator.clipboard.lastText = text },
+      },
+    },
+  })
+  globalThis.location = {hash: '#TEST', origin: 'http://x', pathname: '/', search: ''}
   // net.js fetches TURN credentials from the Worker at join time; keep this
   // test hermetic (and offline) by failing that fetch — connect() falls back to
   // STUN-only, exactly as when no Worker is configured.
@@ -214,6 +232,20 @@ test('rejoins the room after a long page suspension', async () => {
   assert.equal(globalThis.__mock.roomId, 'TEST', 'should rejoin the same room')
   assert.equal(typeof globalThis.__mock.actions.fingers.onMessage, 'function',
     'handlers should be re-wired on the fresh room')
+})
+
+test('diagnostic share button copies a complete debug report', async () => {
+  await listeners['share-diagnostic:click'][0]()
+  const text = globalThis.navigator.clipboard.lastText
+  assert.match(text, /^Chooser diagnostics\n\n/)
+  const report = JSON.parse(text.replace(/^Chooser diagnostics\n\n/, ''))
+  assert.equal(report.roomCode, 'TEST')
+  assert.equal(report.selfId, 'selfPeer0001')
+  assert.equal(report.runtime.userAgent, 'node-smoke-test')
+  assert.equal(report.network.turn.attempted, true)
+  assert.ok(Array.isArray(report.network.relayUrls))
+  assert.ok(Array.isArray(report.webrtc.peerConnections))
+  assert.equal(report.room.hasNet, true)
 })
 
 test('no runtime errors were surfaced to the on-screen toast', () => {
