@@ -7,6 +7,7 @@
     "test": "node --test test/*.test.mjs",
     "e2e": "node --test test/e2e/connect.chromium.e2e.test.mjs",
     "e2e:webkit": "node --test test/e2e/connect.webkit.e2e.test.mjs",
+    "e2e:turn": "node --test test/e2e/turn.e2e.test.mjs",
     "e2e:all": "node --test test/e2e/*.e2e.test.mjs",
     "e2e:install": "playwright install --with-deps chromium webkit",
     "build": "node build.mjs",

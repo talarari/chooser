@@ -49,13 +49,51 @@ function relayOverride() {
 
 const RELAY_URLS = relayOverride() ?? [...PINNED_RELAY_URLS, ...fallbackRelays(4)]
 
+// Open Relay (metered.ca) free public TURN — ~20 GB/mo, static public
+// credentials. STUN-only candidates fail when two peers can't reach each other
+// directly: most painfully iPhone Safari, which gathers only mDNS `.local` host
+// candidates it won't resolve for the peer and so never connects on a plain LAN
+// (issue #2). A relayed (TURN) candidate has a real public address — nothing to
+// resolve, no NAT to pierce — so it's the universal fallback. trystero appends
+// turnConfig onto its STUN defaults (iceServers: defaultStun.concat(turnConfig))
+// and ICE still prefers a direct path, only relaying when nothing else works,
+// so this costs no relay bandwidth for peers that connect directly (e.g.
+// Chrome↔Chrome on a LAN). Public/free = best-effort reliability; swap in a
+// dedicated provider (e.g. Cloudflare TURN) once traffic warrants it.
+const TURN_SERVERS = [
+  {urls: 'stun:stun.relay.metered.ca:80'},
+  {urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject'},
+  {urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject'},
+  {urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject'},
+  // TLS on 443/TCP — the transport that survives UDP-blocking and restrictive
+  // firewalls (best practice for a TURN fallback that must "always" connect).
+  {urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject'},
+]
+
+// Test seam: `?ice=relay` forces ICE to use only relay (TURN) candidates, so the
+// e2e can prove traffic actually traverses the TURN server (no direct path can
+// mask a broken relay). Production never sets it, so ICE keeps preferring direct.
+function forceRelayOnly() {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('ice') === 'relay'
+    }
+  } catch {}
+  return false
+}
+
 export function relayStatus() {
   const sockets = Object.values(getRelaySockets())
   return {open: sockets.filter((s) => s.readyState === 1).length, total: sockets.length}
 }
 
 export function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, onPeerLeave}) {
-  const room = joinRoom({appId: APP_ID, relayConfig: {urls: RELAY_URLS}}, roomCode)
+  const room = joinRoom({
+    appId: APP_ID,
+    relayConfig: {urls: RELAY_URLS},
+    turnConfig: TURN_SERVERS,
+    ...(forceRelayOnly() ? {rtcConfig: {iceTransportPolicy: 'relay'}} : {}),
+  }, roomCode)
 
   const fingers = room.makeAction('fingers')
   const pick = room.makeAction('pick')
