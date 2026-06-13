@@ -14,6 +14,15 @@ A multiplayer finger chooser that works **across devices** — everyone in the r
 
 You get a random name (e.g. "Lucky Otter"); tap it — on the start screen or in the room header — to rename yourself. Names are saved on your device and shown to other players when you're chosen.
 
+### Pick one vs. Groups
+
+The mode toggle in the room header switches between two outcomes:
+
+- **Pick one** (default): the original behavior — one finger is chosen as the winner.
+- **Groups**: choose how many groups (2–8) with the stepper. Every finger starts **uncolored**, and instead of a winner the same 3-second hold **divides the fingers into that many evenly-sized groups**, coloring and numbering each one. Great for splitting a crowd into teams.
+
+The mode is a shared room setting — changing it (or the group count) syncs to everyone, and the host's choice drives each round.
+
 ## Run locally
 
 Any static file server works:
@@ -67,7 +76,7 @@ The app lives at `https://<user>.github.io/<repo>/` — asset paths are relative
 ## How it works
 
 - **Networking** (`js/net.js`): Trystero joins a room derived from the room code. Two P2P actions are used: `fingers` (each device broadcasts its active touches as normalized coordinates, plus a 1s heartbeat) and `pick` (the chosen-finger announcement). ICE uses public STUN plus a **TURN relay fallback** from [Cloudflare TURN](https://developers.cloudflare.com/realtime/turn/) (including TLS-over-443 for UDP-blocked networks). **Trickle ICE is disabled** (`trickleIce: false`): each peer waits for ICE gathering to *complete* and sends one offer/answer with the full candidate set — including the TURN relay candidate — baked into the SDP, instead of dribbling candidates out as separate messages. Over the eventually-consistent, lossy Nostr relay mesh those trailing per-candidate messages don't reliably reach the peer, which strands cross-network peers (relay candidates gathered on both ends but the remote side never leaves `ice: new`, so no data channel opens and fingers never cross — issue #2). Bundling everything into a single SDP message survives the lossy channel. Cloudflare issues short-lived credentials minted from a key whose API token is a secret, so a tiny [Cloudflare Worker](turn-worker/) holds the token and mints credentials on demand; the client fetches fresh ICE servers from it at join time (free public TURN with universal static credentials no longer exists — Open Relay's were retired). ICE always prefers a direct path and only relays when none exists, so relayed bandwidth is spent only on the connections that need it — chiefly iPhone Safari, which otherwise can't connect on a plain LAN (issue #2). With no Worker configured the app falls back to STUN-only, exactly as before TURN existed.
-- **Agreement without a server** (`js/chooser.js`): every finger has a global key `peerId/pointerId`. When the finger set is stable for 3s, the *host* (the peer with the lexicographically smallest id) broadcasts `{seed, keys}`. Every device sorts the keys and runs the same seeded PRNG (mulberry32), so all peers independently compute the same winner.
+- **Agreement without a server** (`js/chooser.js`): every finger has a global key `peerId/pointerId`. When the finger set is stable for 3s, the *host* (the peer with the lexicographically smallest id) broadcasts `{seed, keys}`. Every device sorts the keys and runs the same seeded PRNG (mulberry32), so all peers independently compute the same winner. **Groups mode** works the same way: the host broadcasts `{seed, keys, count}` and every device runs `assignGroups` — a seeded Fisher–Yates shuffle of the sorted keys, round-robined into `count` balanced groups — so all peers agree on the division with no coordination. The mode itself (`{mode, groupCount}`) is synced as its own action and re-sent to newcomers on join, like names.
 - **Resilience**: finger state is re-broadcast every second and expires after 3s of silence, so a device that drops off can't wedge the round. The winner reveal also has a hard 8s timeout.
 - **Rendering** (`js/render.js`): fullscreen canvas; local fingers are solid rings, remote fingers are dashed ghost rings at their relative positions, a white arc shows the countdown, and the winner gets a shockwave reveal.
 - **On-screen WebRTC diagnostic** (`js/diag.js`): phones have no devtools and the iPhone Safari failure is silent (the room joins, no error, but no peer connection forms), so the HUD shows a live readout next to the relay counter — `pc <connectionState> · ice <iceConnectionState> · gather <iceGatheringState> · <candidate types>` — turning "it just doesn't connect" into a precise triage signal (issue #2). It wraps `RTCPeerConnection` to observe the connections trystero owns.

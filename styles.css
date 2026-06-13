@@ -162,6 +162,46 @@ button.primary {
   font-size: 0.7rem;
 }
 
+/* Mode controls: pick one finger vs divide everyone into N groups. */
+#mode-bar {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.15rem;
+}
+
+.mode-chip,
+.step-btn {
+  pointer-events: auto;
+  background: rgba(20, 24, 38, 0.65);
+  border: 1px solid #2a3046;
+  border-radius: 999px;
+  color: var(--fg);
+  font-size: 0.75rem;
+  padding: 0.3rem 0.8rem;
+}
+
+#group-stepper {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.step-btn {
+  padding: 0.3rem 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+#group-count-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  min-width: 5ch;
+  text-align: center;
+}
+
 #tip {
   position: absolute;
   bottom: max(1.5rem, env(safe-area-inset-bottom));
