@@ -31,7 +31,17 @@ Note: WebRTC + clipboard APIs require a secure context — `localhost` is fine, 
 npm test
 ```
 
-Tests cover the deterministic selection logic in `js/chooser.js`.
+Unit + smoke tests cover the deterministic selection logic in `js/chooser.js` and the app wiring (with trystero mocked at the module boundary).
+
+### End-to-end (real WebRTC)
+
+```sh
+npm install            # devDeps: playwright + ws
+npm run e2e:install    # one-time: download the Chromium binary
+npm run e2e
+```
+
+A hermetic Chromium↔Chromium test (`test/e2e/`) drives **two real browser pages** through a full round over **real `RTCPeerConnection`/data channels**. It needs no public network: the pages connect via loopback host candidates, and signaling runs through a tiny local Nostr relay (`test/e2e/relay.mjs`, minimal NIP-01) that the app is pointed at with a `?relays=ws://localhost:…` test seam in `js/net.js`. It asserts both peers reach "2 devices", a finger drawn on one page renders remotely on the other, and a held pick yields one winner both pages agree on — the guard that catches networking regressions the mocked tests can't see.
 
 ## Deploy to GitHub Pages
 

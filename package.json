@@ -5,7 +5,13 @@
   "description": "Multiplayer finger chooser over WebRTC — client-only, no server",
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "e2e": "node --test test/e2e/*.e2e.test.mjs",
+    "e2e:install": "playwright install --with-deps chromium",
     "build": "node build.mjs",
     "start": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "playwright": "^1.50.0",
+    "ws": "^8.18.0"
   }
 }

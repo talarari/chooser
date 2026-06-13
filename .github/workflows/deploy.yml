@@ -22,8 +22,21 @@ jobs:
           node-version: 22
       - run: npm test
 
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # Real Chromium↔Chromium WebRTC over a local Nostr relay — the guard that
+      # goes red if a networking change breaks peer connectivity (issue #1).
+      - run: npm run e2e:install
+      - run: npm run e2e
+
   deploy:
-    needs: test
+    needs: [test, e2e]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
