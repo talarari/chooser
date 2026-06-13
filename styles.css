@@ -140,6 +140,18 @@ button.primary {
 
 #peer-count { color: var(--muted); font-size: 0.8rem; }
 
+/* WebRTC diagnostic readout (issue #2): a precise, always-on view of the peer
+   connection so a silent Safari failure reads out on screen rather than as
+   guesswork. Deliberately small and dimmed — it's a debugging aid, not chrome. */
+#diag {
+  color: var(--muted);
+  opacity: 0.55;
+  font-size: 0.65rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+  max-width: 92vw;
+}
+
 #tip {
   position: absolute;
   bottom: max(1.5rem, env(safe-area-inset-bottom));

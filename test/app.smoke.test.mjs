@@ -45,6 +45,11 @@ const el = (id) => ({
 let vnow = 0
 let rafQueue = []
 
+// connect() is async (it awaits a TURN-credential fetch before joinRoom), so a
+// join completes a few microtasks after it's triggered. A real-timer tick
+// flushes that chain. setInterval is stubbed out below, but setTimeout is real.
+const flush = () => new Promise((r) => setTimeout(r, 0))
+
 function step(ms, frames = 1) {
   for (let i = 0; i < frames; i++) {
     vnow += ms / frames
@@ -78,6 +83,10 @@ before(async () => {
     devicePixelRatio: 2,
   }
   globalThis.location = {hash: '#TEST', origin: 'http://x', pathname: '/'}
+  // net.js fetches TURN credentials from the Worker at join time; keep this
+  // test hermetic (and offline) by failing that fetch — connect() falls back to
+  // STUN-only, exactly as when no Worker is configured.
+  globalThis.fetch = async () => { throw new Error('no network in smoke test') }
   globalThis.requestAnimationFrame = (fn) => rafQueue.push(fn)
   // main.js starts a heartbeat interval; keep it from holding the process open
   globalThis.setInterval = () => 0
@@ -85,6 +94,7 @@ before(async () => {
   Object.defineProperty(globalThis.performance, 'now', {value: () => vnow})
 
   await import(pathToFileURL(join(dir, 'js', 'main.js')))
+  await flush() // let the hash-driven join finish (async TURN fetch -> joinRoom)
 })
 
 test('joining from the URL hash wires up the room', () => {
@@ -177,7 +187,7 @@ test('renaming yourself broadcasts, remote names appear in the banner', () => {
   assert.ok(globalThis.document.querySelector('#banner').hidden)
 })
 
-test('rejoins the room after a long page suspension', () => {
+test('rejoins the room after a long page suspension', async () => {
   const joinsBefore = globalThis.__joins
   const fireVisibility = (state) => {
     globalThis.document.visibilityState = state
@@ -187,6 +197,7 @@ test('rejoins the room after a long page suspension', () => {
   // a short tab switch should NOT trigger a rejoin
   fireVisibility('hidden')
   fireVisibility('visible')
+  await flush()
   assert.equal(globalThis.__joins, joinsBefore, 'short hide should not rejoin')
 
   // a long suspension (screen lock) should rejoin with fresh connections
@@ -198,6 +209,7 @@ test('rejoins the room after a long page suspension', () => {
   } finally {
     Date.now = realNow
   }
+  await flush() // rejoinRoom -> async connect -> joinRoom
   assert.equal(globalThis.__joins, joinsBefore + 1, 'long hide should rejoin')
   assert.equal(globalThis.__mock.roomId, 'TEST', 'should rejoin the same room')
   assert.equal(typeof globalThis.__mock.actions.fingers.onMessage, 'function',

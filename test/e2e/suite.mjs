@@ -57,7 +57,9 @@ export function connectSuite(browserType, label) {
       relay = await startRelay()
       server = await startServer(repo)
       browser = await browserType.launch()
-      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}#${ROOM}`
+      // ?turn= (empty) disables the TURN fetch so this suite stays hermetic and
+      // offline — peers connect over loopback host candidates, no Worker call.
+      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}&turn=#${ROOM}`
 
       const open = async (name) => {
         const ctx = await browser.newContext()

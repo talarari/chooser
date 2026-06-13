@@ -4,6 +4,7 @@
 
 import {joinRoom, selfId, getRelaySockets, defaultRelayUrls} from '../vendor/trystero-nostr.min.js'
 import {hashStr, mulberry32} from './chooser.js'
+import './diag.js' // installs the RTCPeerConnection wrap before any joinRoom()
 
 export {selfId}
 
@@ -49,26 +50,59 @@ function relayOverride() {
 
 const RELAY_URLS = relayOverride() ?? [...PINNED_RELAY_URLS, ...fallbackRelays(4)]
 
-// Open Relay (metered.ca) free public TURN — ~20 GB/mo, static public
-// credentials. STUN-only candidates fail when two peers can't reach each other
+// TURN relay. STUN-only candidates fail when two peers can't reach each other
 // directly: most painfully iPhone Safari, which gathers only mDNS `.local` host
 // candidates it won't resolve for the peer and so never connects on a plain LAN
 // (issue #2). A relayed (TURN) candidate has a real public address — nothing to
-// resolve, no NAT to pierce — so it's the universal fallback. trystero appends
-// turnConfig onto its STUN defaults (iceServers: defaultStun.concat(turnConfig))
-// and ICE still prefers a direct path, only relaying when nothing else works,
-// so this costs no relay bandwidth for peers that connect directly (e.g.
-// Chrome↔Chrome on a LAN). Public/free = best-effort reliability; swap in a
-// dedicated provider (e.g. Cloudflare TURN) once traffic warrants it.
-const TURN_SERVERS = [
-  {urls: 'stun:stun.relay.metered.ca:80'},
-  {urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject'},
-  {urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject'},
-  {urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject'},
-  // TLS on 443/TCP — the transport that survives UDP-blocking and restrictive
-  // firewalls (best practice for a TURN fallback that must "always" connect).
-  {urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject'},
-]
+// resolve, no NAT to pierce — so it's the universal fallback.
+//
+// Free public TURN with universal static credentials no longer exists (Open
+// Relay's `openrelayproject` credentials were retired and now return 400/701),
+// so we use Cloudflare TURN, which mints SHORT-LIVED credentials from a key
+// whose API token is a secret. The token must never ship in client JS, so a
+// tiny Cloudflare Worker (see turn-worker/) holds it and exposes only a minting
+// endpoint; we fetch fresh ICE servers from there at join time. trystero
+// appends our turnConfig onto its STUN defaults (iceServers:
+// defaultStun.concat(turnConfig)) and ICE still prefers a direct path, only
+// relaying when nothing else works, so this costs no relay bandwidth for peers
+// that connect directly (e.g. Chrome↔Chrome on a LAN).
+//
+// The deployed Worker URL (see turn-worker/). Empty would mean STUN-only,
+// exactly as before TURN existed; the ?turn= seam below overrides it for
+// tests/local dev.
+const TURN_ENDPOINT = 'https://chooser-turn.talarari.workers.dev'
+
+// Test seam: `?turn=<url>` overrides the Worker endpoint (point the e2e at a
+// local `wrangler dev`), and `?turn=` (empty) disables TURN entirely.
+function turnEndpoint() {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      const override = new URLSearchParams(location.search).get('turn')
+      if (override !== null) return override
+    }
+  } catch {}
+  return TURN_ENDPOINT
+}
+
+// Fetch fresh ICE servers from the Worker. Best-effort: on any failure (no
+// endpoint, network error, slow Worker) we fall back to STUN-only so joining is
+// never blocked by TURN — peers that can connect directly still do, exactly as
+// before TURN existed. The 3s timeout caps how long a join can wait on it.
+async function fetchTurnServers() {
+  const endpoint = turnEndpoint()
+  if (!endpoint) return []
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 3000)
+    const res = await fetch(endpoint, {signal: ctrl.signal})
+    clearTimeout(timer)
+    if (!res.ok) return []
+    const {iceServers} = await res.json()
+    return iceServers ? [].concat(iceServers) : []
+  } catch {
+    return []
+  }
+}
 
 // Test seam: `?ice=relay` forces ICE to use only relay (TURN) candidates, so the
 // e2e can prove traffic actually traverses the TURN server (no direct path can
@@ -87,11 +121,12 @@ export function relayStatus() {
   return {open: sockets.filter((s) => s.readyState === 1).length, total: sockets.length}
 }
 
-export function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, onPeerLeave}) {
+export async function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, onPeerLeave}) {
+  const turnConfig = await fetchTurnServers()
   const room = joinRoom({
     appId: APP_ID,
     relayConfig: {urls: RELAY_URLS},
-    turnConfig: TURN_SERVERS,
+    turnConfig,
     ...(forceRelayOnly() ? {rtcConfig: {iceTransportPolicy: 'relay'}} : {}),
   }, roomCode)
 

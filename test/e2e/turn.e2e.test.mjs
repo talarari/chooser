@@ -1,17 +1,20 @@
 // Forced-relay end-to-end test: proves two peers connect PURELY through the TURN
 // relay, with no direct path allowed (iceTransportPolicy:'relay' via the
 // ?ice=relay seam in js/net.js). A direct connection can't mask a broken relay,
-// so a green run here means the Open Relay TURN fallback added for iPhone Safari
+// so a green run here means the Cloudflare TURN fallback added for iPhone Safari
 // (issue #2) actually relays traffic end to end.
 //
-// Unlike the hermetic connect suite, this needs real network egress to the TURN
-// server. Locked-down CI sandboxes commonly allowlist egress (DNS + HTTPS to
-// approved hosts) and filter STUN/TURN flows, so they can't reach any TURN relay
-// (this repo's CI included), and the free public Open Relay is itself
-// best-effort. So the test PROBES whether a relay candidate can be gathered and
-// SKIPS — rather than fails — when TURN is unreachable. It therefore validates
-// the relay path wherever connectivity exists (a dev machine, a permissive CI),
-// and stays quiet where it can't. Real iPhone Safari confirmation still needs a
+// TURN credentials are minted by the Cloudflare Worker in turn-worker/ (the API
+// token is a secret that can't ship in client JS), so this test needs a running
+// Worker and real network egress to Cloudflare TURN. Point it at one with:
+//
+//   TURN_WORKER_URL=https://chooser-turn.<subdomain>.workers.dev npm run e2e:turn
+//   # or against a local `wrangler dev`:
+//   TURN_WORKER_URL=http://127.0.0.1:8787 npm run e2e:turn
+//
+// Without TURN_WORKER_URL the test SKIPS (locked-down CI has no TURN key and
+// filters STUN/TURN egress anyway), so it validates the relay path only where a
+// Worker + connectivity exist. Real iPhone Safari confirmation still needs a
 // device or cloud lab (issue #2).
 import {test, describe, before, after} from 'node:test'
 import {dirname, join} from 'node:path'
@@ -22,11 +25,11 @@ import {startServer} from './server.mjs'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const ROOM = 'TURNROOM'
+const WORKER = process.env.TURN_WORKER_URL
 
-// Injected before app code: flip window flags when a relay (TURN) candidate is
-// gathered and when the peer connection actually opens, so the test can tell
-// "TURN unreachable" (no relay candidate) apart from "TURN works but won't
-// connect" (relay candidate, never connected).
+// Injected before app code: flip a window flag when a relay (TURN) candidate is
+// gathered, so the test can tell "TURN works" apart from "no relay candidate"
+// (broken Worker/credentials, or filtered egress).
 const probe = () => {
   window.__relayCand = false
   const Orig = window.RTCPeerConnection
@@ -52,11 +55,15 @@ function turnSuite(engine, label) {
     let relay, server, browser, A, B
 
     before(async () => {
+      if (!WORKER) return // nothing to launch when we're going to skip
       relay = await startRelay()
       server = await startServer(repo)
       browser = await engine.launch()
-      // Local relay for signaling; ice=relay forces the media/data path onto TURN.
-      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}&ice=relay#${ROOM}`
+      // Local relay for signaling; turn=<Worker> supplies Cloudflare TURN creds;
+      // ice=relay forces the media/data path onto TURN so a direct path can't
+      // mask a broken relay.
+      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}` +
+        `&turn=${encodeURIComponent(WORKER)}&ice=relay#${ROOM}`
       const open = async (name) => {
         const ctx = await browser.newContext()
         const page = await ctx.newPage()
@@ -76,15 +83,20 @@ function turnSuite(engine, label) {
     })
 
     test('two peers connect using only TURN relay candidates', async (t) => {
-      const [ra, rb] = await Promise.all([gotRelayCandidate(A), gotRelayCandidate(B)])
-      if (!ra || !rb) {
-        t.skip('TURN unreachable from this environment (no relay candidate gathered — ' +
-          'STUN/TURN egress is filtered here, or the free relay is down). The relay path ' +
-          'can only be validated where TURN egress exists; confirm iPhone Safari on a real device (issue #2).')
+      if (!WORKER) {
+        t.skip('Set TURN_WORKER_URL to a deployed Worker or `wrangler dev` URL to ' +
+          'validate the Cloudflare TURN relay path (see turn-worker/README.md). ' +
+          'Real iPhone Safari confirmation still needs a device (issue #2).')
         return
       }
-      // A relay candidate means the TURN allocation succeeded, so the relay-only
-      // path must now carry the connection all the way to "2 devices".
+      // With a Worker configured we expect TURN to allocate. No relay candidate
+      // here is a real failure (broken Worker/credentials, or blocked egress),
+      // not a skip — that's the whole point of running with TURN_WORKER_URL.
+      const [ra, rb] = await Promise.all([gotRelayCandidate(A), gotRelayCandidate(B)])
+      t.assert.ok(ra && rb,
+        'no relay candidate gathered — the Worker did not return working TURN ' +
+        'credentials, or STUN/TURN egress is blocked from here')
+      // The relay-only path must now carry the connection all the way to "2 devices".
       await Promise.all([hasPeers(A), hasPeers(B)])
     })
   })

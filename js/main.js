@@ -1,4 +1,5 @@
 import {connect, selfId, relayStatus} from './net.js'
+import {diagSnapshot} from './diag.js'
 import {draw} from './render.js'
 import {
   MIN_FINGERS, HOLD_MS, REVEAL_MIN_MS, REVEAL_MAX_MS,
@@ -15,6 +16,7 @@ const roomCodeEl = $('#room-code')
 const nameEls = [$('#name-pill'), $('#name-landing')]
 const copyStateEl = $('#copy-state')
 const peerCountEl = $('#peer-count')
+const diagEl = $('#diag')
 const bannerEl = $('#banner')
 const tipEl = $('#tip')
 const errEl = $('#err')
@@ -93,20 +95,25 @@ $('#join-form').addEventListener('submit', (e) => {
 
 let loopStarted = false
 
-function enterRoom(code) {
+// Monotonic join counter. connect() now awaits a TURN-credential fetch, so a
+// rapid re-join (or a rejoin-after-suspend racing a manual join) could resolve
+// an older join after a newer one. Each join claims a sequence number and only
+// installs its room handle if it's still the latest.
+let joinSeq = 0
+
+async function enterRoom(code) {
   if (net) {
     try { net.leave() } catch {}
     peers.clear()
     localFingers.clear()
     reset()
   }
+  net = null
   roomCode = code
   location.hash = code
   roomCodeEl.textContent = code
   landing.hidden = true
   app.hidden = false
-
-  net = joinNet(code)
 
   requestWakeLock()
   resize()
@@ -114,10 +121,15 @@ function enterRoom(code) {
     loopStarted = true
     requestAnimationFrame(tick)
   }
+
+  // net is briefly null while credentials are fetched; every user of net guards
+  // with `?.`, and the render loop above is already running.
+  net = await joinNet(code)
 }
 
-function joinNet(code) {
-  return connect(code, {
+async function joinNet(code) {
+  const seq = ++joinSeq
+  const room = await connect(code, {
     onFingers: (data, peerId) => {
       const peer = ensurePeer(peerId)
       peer.fingers = new Map(Object.entries(data))
@@ -135,6 +147,12 @@ function joinNet(code) {
     },
     onPeerLeave: (peerId) => peers.delete(peerId),
   })
+  if (seq !== joinSeq) {
+    // A newer join started while we awaited TURN credentials — drop this one.
+    try { room.leave() } catch {}
+    return null
+  }
+  return room
 }
 
 // Mobile browsers freeze the page when the screen locks or the tab is
@@ -151,12 +169,13 @@ document.addEventListener('visibilitychange', () => {
   }
 })
 
-function rejoinRoom() {
+async function rejoinRoom() {
   try { net.leave() } catch {}
   peers.clear()
   localFingers.clear()
   reset()
-  net = joinNet(roomCode)
+  net = null
+  net = await joinNet(roomCode)
 }
 
 const hashCode = normalizeCode(location.hash.slice(1))
@@ -336,6 +355,14 @@ function tick() {
   const relays = relayStatus()
   peerCountEl.textContent =
     `${1 + peers.size} device${peers.size ? 's' : ''} · ${relays.open}/${relays.total} relays`
+
+  // WebRTC diagnostic (issue #2): live connection/ICE state + gathered candidate
+  // types, so a silent peer-connection failure (the iPhone Safari case) reads
+  // out on screen instead of leaving only the healthy-looking relay counter.
+  const d = diagSnapshot()
+  diagEl.textContent =
+    `pc ${d.connection} · ice ${d.ice} · gather ${d.gathering} · ${d.candidates.join('/') || 'no candidates'}`
+
   tipEl.style.opacity = state === 'idle' && fingers.length === 0 ? 1 : 0
 
   requestAnimationFrame(tick)
