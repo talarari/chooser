@@ -32,9 +32,12 @@ async function press(page, id, fx, fy) {
   }, {id, fx, fy})
 }
 
+// Playwright WebKit on Linux can establish the local WebRTC connection slowly
+// under GitHub Actions load. Keep this as a connectivity guard, but leave enough
+// room for the peer event to arrive before the follow-up rendering assertions.
 const hasPeers = (page) => page.waitForFunction(
   () => document.querySelector('#peer-count')?.textContent.includes('2 device'),
-  null, {timeout: 30000})
+  null, {timeout: 60000})
 
 const bannerShown = (page) => page.waitForFunction(
   () => !document.querySelector('#banner').hidden, null, {timeout: 20000})
@@ -45,7 +48,7 @@ const canvasHasInk = (page) => page.waitForFunction(() => {
   const {data} = c.getContext('2d').getImageData(0, 0, c.width, c.height)
   for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return true
   return false
-}, null, {timeout: 10000})
+}, null, {timeout: 20000})
 
 // Register the full connectivity suite for one Playwright engine.
 export function connectSuite(browserType, label) {
