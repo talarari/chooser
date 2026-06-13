@@ -1,3 +1,10 @@
 node_modules/
 .DS_Store
 dist/
+
+# Local env + Cloudflare Worker state + secrets (never commit credentials)
+.env
+.env.*
+.wrangler/
+.dev.vars
+*.dev.vars

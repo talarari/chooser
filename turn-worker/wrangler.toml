@@ -1,0 +1,31 @@
+# Cloudflare Worker that mints short-lived Cloudflare TURN credentials for the
+# Chooser app. See README.md in this directory for full setup. Quick version:
+#
+#   1. Create a TURN key:  Cloudflare dashboard → Realtime → TURN → Create →
+#      copy the Key ID and API Token.
+#   2. Fill TURN_KEY_ID + ALLOWED_ORIGINS below.
+#   3. Store the API token as a secret (NOT in this file):
+#        npx wrangler secret put TURN_KEY_API_TOKEN
+#   4. Deploy:  npx wrangler deploy
+#   5. Put the deployed Worker URL in js/net.js (TURN_ENDPOINT).
+
+name = "chooser-turn"
+main = "src/worker.js"
+compatibility_date = "2024-09-01"
+
+[vars]
+# Your Cloudflare TURN key's ID. Set this before deploying (see README.md). It's
+# not a secret on its own — minting still needs the API token secret — but it's
+# left blank here so the open-source repo carries no account-specific values.
+TURN_KEY_ID = ""
+
+# Comma-separated origins allowed to mint credentials. Lock this to your site so
+# a scraped Worker URL can't burn your TURN quota elsewhere. localhost is always
+# allowed regardless, for local dev and the forced-relay e2e.
+ALLOWED_ORIGINS = "https://talarari.github.io"
+
+# Credential lifetime in seconds (default 86400 = 24h).
+TTL = "86400"
+
+# TURN_KEY_API_TOKEN is a SECRET — do NOT put it here. Set it with:
+#   npx wrangler secret put TURN_KEY_API_TOKEN

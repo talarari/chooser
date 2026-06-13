@@ -37,6 +37,32 @@ jobs:
       - run: npm run e2e:install
       - run: npm run e2e
 
+  # Safari signals — non-blocking (continue-on-error, absent from deploy's
+  # `needs`) so they surface iPhone Safari status (issue #2) without gating
+  # deploys. Both are best-effort, not deploy gates:
+  #   * e2e:webkit — WebKit (Safari's engine), the closest stand-in for iPhone
+  #     Safari on Linux/CI. Over hermetic loopback it reproduces the bug: WebKit
+  #     gathers only mDNS .local host candidates it can't resolve for the peer,
+  #     so without a reachable TURN relay no connection forms.
+  #   * e2e:turn — forces ICE through the Cloudflare TURN fallback and asserts
+  #     two peers connect over the relay. TURN credentials come from the Worker
+  #     in turn-worker/, so it SKIPS unless TURN_WORKER_URL is set (CI has no
+  #     TURN key and filters STUN/TURN egress anyway); it validates the relay
+  #     path only where a Worker + connectivity exist. WebKit-on-Linux is not
+  #     Safari; real confirmation needs a device/cloud lab.
+  e2e-safari:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run e2e:install
+      - run: npm run e2e:webkit
+      - run: npm run e2e:turn
+
   deploy:
     needs: [test, e2e]
     # Validate on PRs, but only publish on pushes to main (or manual dispatch).
