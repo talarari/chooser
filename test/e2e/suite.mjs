@@ -50,6 +50,17 @@ const canvasHasInk = (page) => page.waitForFunction(() => {
   return false
 }, null, {timeout: 20000})
 
+// Chromium hides loopback host candidates behind mDNS `.local` names, and CI
+// runners resolve multicast mDNS unreliably — so two loopback peers can flake
+// on pairing their host candidates (this hermetic suite has no TURN fallback).
+// Force raw 127.0.0.1 host candidates so the connection is deterministic on any
+// machine. Chromium-only flag; other engines launch with defaults.
+function launchOptions(browserType) {
+  return browserType.name() === 'chromium'
+    ? {args: ['--disable-features=WebRtcHideLocalIpsWithMdns']}
+    : {}
+}
+
 // Register the full connectivity suite for one Playwright engine.
 export function connectSuite(browserType, label) {
   describe(`${label} ↔ ${label} WebRTC`, () => {
@@ -59,7 +70,7 @@ export function connectSuite(browserType, label) {
     before(async () => {
       relay = await startRelay()
       server = await startServer(repo)
-      browser = await browserType.launch()
+      browser = await browserType.launch(launchOptions(browserType))
       // ?turn= (empty) disables the TURN fetch so this suite stays hermetic and
       // offline — peers connect over loopback host candidates, no Worker call.
       const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}&turn=#${ROOM}`
