@@ -33,7 +33,21 @@ function fallbackRelays(count) {
   return pool.slice(0, count)
 }
 
-const RELAY_URLS = [...PINNED_RELAY_URLS, ...fallbackRelays(4)]
+// Test seam: a `?relays=ws://host:port,...` query param overrides the relay
+// list entirely, so the hermetic Chromium e2e (test/e2e) can point every peer
+// at a local Nostr relay with no public network. Production never sets it, so
+// the pinned + fallback defaults below are untouched.
+function relayOverride() {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      const relays = new URLSearchParams(location.search).get('relays')
+      if (relays) return relays.split(',').filter(Boolean)
+    }
+  } catch {}
+  return null
+}
+
+const RELAY_URLS = relayOverride() ?? [...PINNED_RELAY_URLS, ...fallbackRelays(4)]
 
 export function relayStatus() {
   const sockets = Object.values(getRelaySockets())
