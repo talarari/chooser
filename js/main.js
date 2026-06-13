@@ -2,8 +2,9 @@ import {connect, selfId, relayStatus, networkDiagnostics} from './net.js'
 import {diagDetails, diagSnapshot} from './diag.js'
 import {draw} from './render.js'
 import {
-  MIN_FINGERS, HOLD_MS, REVEAL_MIN_MS, REVEAL_MAX_MS, MIN_GROUPS, MAX_GROUPS, NEUTRAL_COLOR,
-  fingerKey, colorFor, peerName, sanitizeName, pickWinner, assignGroups, groupColor,
+  MIN_FINGERS, HOLD_MS, REVEAL_MIN_MS, REVEAL_MAX_MS,
+  MIN_GROUPS, MAX_GROUPS, MIN_WINNERS, MAX_WINNERS, NEUTRAL_COLOR,
+  fingerKey, colorFor, peerName, sanitizeName, pickWinners, assignGroups, groupColor,
   randomCode, normalizeCode,
 } from './chooser.js'
 
@@ -23,8 +24,8 @@ const bannerEl = $('#banner')
 const tipEl = $('#tip')
 const errEl = $('#err')
 const modeToggleEl = $('#mode-toggle')
-const groupStepperEl = $('#group-stepper')
-const groupCountLabelEl = $('#group-count-label')
+const countStepperEl = $('#count-stepper')
+const countLabelEl = $('#count-label')
 
 // surface runtime failures on screen — phones have no devtools handy
 const errorLog = []
@@ -52,14 +53,16 @@ let state = 'idle' // idle | armed | picked
 let stableSince = 0
 let lastSig = ''
 let progress = 0
-let winner = null // {key, peerId, x, y, local, color} — set in 'pick' mode
+let winners = [] // [{key, peerId, px, py, local, color}] — set in 'winners' mode
 let groupAssignment = null // Map<fingerKey, groupIndex> — set in 'groups' mode
 let pickedAt = 0
 
-// Selection mode, shared across the room. 'pick' chooses one finger (the
-// original behavior); 'groups' starts everyone neutral and, on the same hold,
-// divides the fingers into `groupCount` colored groups instead of a winner.
-let mode = 'pick' // 'pick' | 'groups'
+// Selection mode, shared across the room. 'winners' picks `winnerCount` fingers
+// (count 1 is the original "pick one" behavior); 'groups' starts everyone
+// neutral and, on the same hold, divides the fingers into `groupCount` colored
+// groups instead. Each mode remembers its own count independently.
+let mode = 'winners' // 'winners' | 'groups'
+let winnerCount = 1
 let groupCount = 2
 
 const PEER_STALE_MS = 3000
@@ -101,19 +104,34 @@ function ensurePeer(peerId) {
 
 // ---- selection mode ----
 
-function renderMode() {
-  modeToggleEl.textContent = mode === 'groups' ? 'Groups' : 'Pick one'
-  groupStepperEl.hidden = mode !== 'groups'
-  groupCountLabelEl.textContent = `${groupCount} groups`
-  tipEl.textContent = mode === 'groups'
-    ? `Everyone holds a finger — they'll be split into ${groupCount} groups`
-    : 'Touch and hold with at least two fingers — across any devices in the room'
+// The active count is whichever the current mode edits; the stepper is visible
+// in both modes (winners min is 1, so there's always something to show).
+function activeCount() {
+  return mode === 'groups' ? groupCount : winnerCount
 }
 
-// Apply a mode update that arrived from a peer (no rebroadcast).
+function renderMode() {
+  modeToggleEl.textContent = mode === 'groups' ? 'Groups' : 'Winners'
+  countStepperEl.hidden = false
+  if (mode === 'groups') {
+    countLabelEl.textContent = `${groupCount} groups`
+    tipEl.textContent = `Everyone holds a finger — they'll be split into ${groupCount} groups`
+  } else {
+    countLabelEl.textContent = `${winnerCount} winner${winnerCount === 1 ? '' : 's'}`
+    tipEl.textContent = winnerCount === 1
+      ? 'Touch and hold with at least two fingers — across any devices in the room'
+      : `Touch and hold — ${winnerCount} winners get picked across any devices in the room`
+  }
+}
+
+// Apply a mode update that arrived from a peer (no rebroadcast). Both counts
+// travel together so each mode's remembered count stays in sync across peers.
 function applyMode(data) {
   if (!data) return
-  if (data.mode === 'pick' || data.mode === 'groups') mode = data.mode
+  if (data.mode === 'winners' || data.mode === 'groups') mode = data.mode
+  if (Number.isFinite(data.winnerCount)) {
+    winnerCount = Math.min(MAX_WINNERS, Math.max(MIN_WINNERS, Math.floor(data.winnerCount)))
+  }
   if (Number.isFinite(data.groupCount)) {
     groupCount = Math.min(MAX_GROUPS, Math.max(MIN_GROUPS, Math.floor(data.groupCount)))
   }
@@ -123,22 +141,24 @@ function applyMode(data) {
 // Apply a local change and tell the room — mode is a shared room setting.
 function broadcastMode() {
   renderMode()
-  net?.sendMode({mode, groupCount})
+  net?.sendMode({mode, winnerCount, groupCount})
 }
 
 modeToggleEl.addEventListener('click', () => {
-  mode = mode === 'groups' ? 'pick' : 'groups'
+  mode = mode === 'groups' ? 'winners' : 'groups'
   reset() // clear any in-progress reveal when switching modes
   broadcastMode()
 })
 
-$('#group-dec').addEventListener('click', () => {
-  groupCount = Math.max(MIN_GROUPS, groupCount - 1)
+$('#count-dec').addEventListener('click', () => {
+  if (mode === 'groups') groupCount = Math.max(MIN_GROUPS, groupCount - 1)
+  else winnerCount = Math.max(MIN_WINNERS, winnerCount - 1)
   broadcastMode()
 })
 
-$('#group-inc').addEventListener('click', () => {
-  groupCount = Math.min(MAX_GROUPS, groupCount + 1)
+$('#count-inc').addEventListener('click', () => {
+  if (mode === 'groups') groupCount = Math.min(MAX_GROUPS, groupCount + 1)
+  else winnerCount = Math.min(MAX_WINNERS, winnerCount + 1)
   broadcastMode()
 })
 
@@ -207,7 +227,7 @@ async function joinNet(code) {
       // bring the newcomer up to date
       net.sendFingers(packFingers(), peerId)
       net.sendName(myName, peerId)
-      net.sendMode({mode, groupCount}, peerId)
+      net.sendMode({mode, winnerCount, groupCount}, peerId)
     },
     onPeerLeave: (peerId) => peers.delete(peerId),
   })
@@ -312,6 +332,7 @@ async function diagnosticText() {
       localFingerCount: localFingers.size,
       state,
       mode,
+      winnerCount,
       groupCount,
       isHost: isHost(),
     },
@@ -437,8 +458,9 @@ function collectFingers(now) {
 function doPick(fingers) {
   const seed = (Math.random() * 2 ** 32) >>> 0
   const keys = fingers.map((f) => f.key)
-  net.sendPick({seed, keys})
-  applyPick({seed, keys})
+  const count = winnerCount
+  net.sendPick({seed, keys, count})
+  applyPick({seed, keys, count})
 }
 
 function doGroup(fingers) {
@@ -452,7 +474,7 @@ function doGroup(fingers) {
 function applyGroup({seed, keys, count}) {
   if (state === 'picked') return
   groupAssignment = assignGroups(keys, seed, count)
-  winner = null
+  winners = []
   state = 'picked'
   pickedAt = performance.now()
   navigator.vibrate?.(40)
@@ -461,32 +483,43 @@ function applyGroup({seed, keys, count}) {
   bannerEl.textContent = `Split into ${count} group${count === 1 ? '' : 's'}`
 }
 
-function applyPick({seed, keys}) {
+function applyPick({seed, keys, count}) {
   if (state === 'picked') return
-  const key = pickWinner(keys, seed)
-  if (!key) return
+  const won = pickWinners(keys, seed, count ?? 1)
+  if (won.length === 0) return
   const now = performance.now()
-  const f = collectFingers(now).find((x) => x.key === key)
-  const peerId = key.split('/')[0]
-  winner = {
-    key,
-    peerId,
-    local: peerId === selfId,
-    color: colorFor(key),
-    px: f ? f.px : canvas.clientWidth / 2,
-    py: f ? f.py : canvas.clientHeight / 2,
-  }
+  const present = collectFingers(now)
+  winners = won.map((key) => {
+    const f = present.find((x) => x.key === key)
+    const peerId = key.split('/')[0]
+    return {
+      key,
+      peerId,
+      local: peerId === selfId,
+      color: colorFor(key),
+      px: f ? f.px : canvas.clientWidth / 2,
+      py: f ? f.py : canvas.clientHeight / 2,
+    }
+  })
   state = 'picked'
   pickedAt = now
-  navigator.vibrate?.(winner.local ? [80, 60, 160] : 30)
+  const localWon = winners.some((w) => w.local)
+  navigator.vibrate?.(localWon ? [80, 60, 160] : 30)
   bannerEl.hidden = false
-  bannerEl.style.color = winner.color
-  bannerEl.textContent = winner.local ? '🎉 You were chosen!' : `${nameOf(peerId)} was chosen`
+  if (winners.length === 1) {
+    // Single-winner wording is load-bearing (e2e asserts on it) — keep it exact.
+    const w = winners[0]
+    bannerEl.style.color = w.color
+    bannerEl.textContent = w.local ? '🎉 You were chosen!' : `${nameOf(w.peerId)} was chosen`
+  } else {
+    bannerEl.style.color = '' // multiple winners have no single color; use default
+    bannerEl.textContent = localWon ? "🎉 You're a winner!" : `${winners.length} winners`
+  }
 }
 
 function reset() {
   state = 'idle'
-  winner = null
+  winners = []
   groupAssignment = null
   progress = 0
   stableSince = performance.now()
@@ -503,12 +536,14 @@ function tick() {
     const elapsed = now - pickedAt
     if ((fingers.length === 0 && elapsed > REVEAL_MIN_MS) || elapsed > REVEAL_MAX_MS) {
       reset()
-    } else if (winner) {
-      // follow the winning finger while it's still down
-      const f = fingers.find((x) => x.key === winner.key)
-      if (f) {
-        winner.px = f.px
-        winner.py = f.py
+    } else if (winners.length) {
+      // follow each winning finger while it's still down
+      for (const w of winners) {
+        const f = fingers.find((x) => x.key === w.key)
+        if (f) {
+          w.px = f.px
+          w.py = f.py
+        }
       }
     }
   } else {
@@ -520,7 +555,7 @@ function tick() {
       progress = (now - stableSince) / HOLD_MS
       if (progress >= 1 && isHost()) {
         if (mode === 'groups') doGroup(fingers)
-        else doPick(fingers)
+        else doPick(fingers) // winners mode
       }
     } else {
       state = 'idle'
@@ -528,7 +563,7 @@ function tick() {
     }
   }
 
-  draw(ctx, {w: canvas.clientWidth, h: canvas.clientHeight, now, fingers, state, progress, winner, pickedAt})
+  draw(ctx, {w: canvas.clientWidth, h: canvas.clientHeight, now, fingers, state, progress, winners, pickedAt})
 
   const relays = relayStatus()
   peerCountEl.textContent =

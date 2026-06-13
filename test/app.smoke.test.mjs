@@ -215,12 +215,12 @@ test('groups mode: pick toggle off, host divides fingers into colored groups', (
   let modeMsg = sent.filter(([name]) => name === 'mode').at(-1)
   assert.ok(modeMsg && modeMsg[1].mode === 'groups', 'switching to groups broadcasts the mode')
   assert.equal(globalThis.document.querySelector('#mode-toggle').textContent, 'Groups')
-  assert.ok(!globalThis.document.querySelector('#group-stepper').hidden, 'group stepper shows in groups mode')
+  assert.ok(!globalThis.document.querySelector('#count-stepper').hidden, 'count stepper shows in groups mode')
 
-  listeners['group-inc:click'][0]() // 2 -> 3 groups
+  listeners['count-inc:click'][0]() // 2 -> 3 groups
   modeMsg = sent.filter(([name]) => name === 'mode').at(-1)
   assert.equal(modeMsg[1].groupCount, 3, 'changing the count broadcasts it')
-  assert.equal(globalThis.document.querySelector('#group-count-label').textContent, '3 groups')
+  assert.equal(globalThis.document.querySelector('#count-label').textContent, '3 groups')
 
   // two local fingers + one remote finger, held stable past HOLD_MS as host
   const down = listeners['stage:pointerdown'][0]
@@ -248,8 +248,50 @@ test('groups mode: pick toggle off, host divides fingers into colored groups', (
   actions.fingers.onMessage({}, {peerId: 'zzzRemotePeer'})
   step(9000, 20)
   assert.ok(banner.hidden, 'round should reset after the reveal')
-  listeners['mode-toggle:click'][0]() // back to pick for later tests
-  assert.equal(globalThis.document.querySelector('#mode-toggle').textContent, 'Pick one')
+  listeners['mode-toggle:click'][0]() // back to winners for later tests
+  assert.equal(globalThis.document.querySelector('#mode-toggle').textContent, 'Winners')
+})
+
+test('winners mode with count 2: host picks two winners across devices', () => {
+  const {actions} = globalThis.__mock
+  const sent = globalThis.__sent
+  sent.length = 0
+
+  // we're back in winners mode (count 1, the default); bump to 2 winners
+  listeners['count-inc:click'][0]() // 1 -> 2 winners
+  let modeMsg = sent.filter(([name]) => name === 'mode').at(-1)
+  assert.ok(modeMsg && modeMsg[1].mode === 'winners', 'still in winners mode')
+  assert.equal(modeMsg[1].winnerCount, 2, 'changing the count broadcasts it')
+  assert.equal(globalThis.document.querySelector('#count-label').textContent, '2 winners')
+
+  // two local fingers + one remote finger, held stable past HOLD_MS as host
+  const down = listeners['stage:pointerdown'][0]
+  down({pointerId: 1, clientX: 100, clientY: 100, preventDefault: () => {}})
+  down({pointerId: 2, clientX: 500, clientY: 400, preventDefault: () => {}})
+  step(100, 5)
+  for (let i = 0; i < 4; i++) {
+    actions.fingers.onMessage({7: [0.5, 0.5]}, {peerId: 'zzzRemotePeer'})
+    step(1000, 10)
+  }
+
+  const pickMsg = sent.find(([name]) => name === 'pick')
+  assert.ok(pickMsg, 'host should broadcast a pick after the hold')
+  assert.equal(pickMsg[1].count, 2, 'pick should carry the winner count')
+  assert.equal(pickMsg[1].keys.length, 3, 'pick should cover all three fingers')
+  const banner = globalThis.document.querySelector('#banner')
+  assert.ok(!banner.hidden, 'banner should reveal the winners')
+  // two of the three fingers won; the local player held two so is a winner
+  assert.match(banner.textContent, /winner/, 'banner reflects multiple winners')
+
+  // lift everything, let the reveal expire, and drop back to 1 winner
+  const up = listeners['window:pointerup'][0]
+  up({pointerId: 1})
+  up({pointerId: 2})
+  actions.fingers.onMessage({}, {peerId: 'zzzRemotePeer'})
+  step(9000, 20)
+  assert.ok(banner.hidden, 'round should reset after the reveal')
+  listeners['count-dec:click'][0]() // back to 1 winner for later tests
+  assert.equal(globalThis.document.querySelector('#count-label').textContent, '1 winner')
 })
 
 test('rejoins the room after a long page suspension', async () => {

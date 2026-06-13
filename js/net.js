@@ -189,10 +189,12 @@ export async function connect(roomCode, {onFingers, onPick, onName, onMode, onGr
   }, roomCode)
 
   const fingers = room.makeAction('fingers')
+  // `pick` reveals winners: {seed, keys, count} (count = number of winners).
   const pick = room.makeAction('pick')
   const name = room.makeAction('name')
-  // `mode` syncs the room setting (pick one vs divide into N groups); `group`
-  // is the division reveal, the groups-mode analogue of `pick`.
+  // `mode` syncs the room setting: {mode, winnerCount, groupCount} — both counts
+  // travel together so each mode's count stays consistent across peers. `group`
+  // is the division reveal ({seed, keys, count}), the groups-mode analogue of `pick`.
   const mode = room.makeAction('mode')
   const group = room.makeAction('group')
 

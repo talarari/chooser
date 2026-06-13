@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  pickWinner, mulberry32, colorFor, peerName, sanitizeName, fingerKey,
+  pickWinner, pickWinners, mulberry32, colorFor, peerName, sanitizeName, fingerKey,
   randomCode, normalizeCode, PALETTE, assignGroups, groupColor,
 } from '../js/chooser.js'
 
@@ -35,6 +35,52 @@ test('pickWinner returns a member of the input and covers all members', () => {
 test('pickWinner handles edge cases', () => {
   assert.equal(pickWinner([], 7), null)
   assert.equal(pickWinner(['only/1'], 7), 'only/1')
+})
+
+test('pickWinners is deterministic for a given seed', () => {
+  const keys = ['peerB/2', 'peerA/1', 'peerC/7', 'peerD/4']
+  const first = pickWinners(keys, 12345, 2)
+  for (let i = 0; i < 20; i++) {
+    assert.deepEqual(pickWinners(keys, 12345, 2), first)
+  }
+})
+
+test('pickWinners is order-independent (all peers agree)', () => {
+  const keys = ['c/1', 'a/9', 'b/3', 'a/2', 'd/5']
+  const shuffled = ['a/2', 'd/5', 'b/3', 'c/1', 'a/9']
+  for (const seed of [0, 1, 42, 999999, 2 ** 31]) {
+    // sort both so set membership is compared (order within the result is the
+    // shuffle order, which is itself identical for identical sorted input)
+    assert.deepEqual(pickWinners(keys, seed, 3), pickWinners(shuffled, seed, 3))
+  }
+})
+
+test('pickWinners returns count distinct members all from the input', () => {
+  const keys = ['a/1', 'b/1', 'c/1', 'd/1', 'e/1']
+  const won = pickWinners(keys, 42, 3)
+  assert.equal(won.length, 3)
+  assert.equal(new Set(won).size, 3, 'winners are distinct')
+  for (const w of won) assert.ok(keys.includes(w), 'winner is from the input')
+})
+
+test('pickWinners clamps count to the number of keys', () => {
+  const keys = ['a/1', 'b/1', 'c/1']
+  const won = pickWinners(keys, 7, 10)
+  assert.equal(won.length, 3, 'cannot pick more winners than fingers')
+  assert.equal(new Set(won).size, 3)
+})
+
+test('pickWinners clamps count up to at least 1 and handles empty input', () => {
+  assert.deepEqual(pickWinners([], 7, 3), [])
+  assert.equal(pickWinners(['only/1'], 7, 5).length, 1)
+  assert.equal(pickWinners(['a/1', 'b/1'], 7, 0).length, 1, 'count below 1 clamps to 1')
+})
+
+test('pickWinners with count 1 matches pickWinner', () => {
+  const keys = ['peerB/2', 'peerA/1', 'peerC/7']
+  for (const seed of [0, 1, 42, 12345, 999999]) {
+    assert.equal(pickWinners(keys, seed, 1)[0], pickWinner(keys, seed))
+  }
 })
 
 test('assignGroups is deterministic and order-independent (all peers agree)', () => {

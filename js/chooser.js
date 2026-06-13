@@ -62,11 +62,31 @@ export function mulberry32(seed) {
   }
 }
 
-// keys: finger keys present at pick time (any order). Returns the winning key.
+// ---- winners mode ----
+
+export const MIN_WINNERS = 1
+export const MAX_WINNERS = 8
+
+// keys: finger keys present at pick time (any order). Returns `count` DISTINCT
+// winning keys. Like assignGroups, every peer runs this on the same
+// {keys, seed, count} and derives an identical result with no coordination —
+// sort first so the shuffle is order-independent, then a seeded Fisher–Yates
+// and take the first `count`. Count is clamped to [1, keys.length].
+export function pickWinners(keys, seed, count) {
+  const shuffled = [...keys].sort()
+  if (shuffled.length === 0) return []
+  const n = Math.min(shuffled.length, Math.max(1, Math.floor(count)))
+  const rand = mulberry32(seed)
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled.slice(0, n)
+}
+
+// Thin wrapper for the single-winner case so existing callers/tests keep working.
 export function pickWinner(keys, seed) {
-  const sorted = [...keys].sort()
-  if (sorted.length === 0) return null
-  return sorted[Math.floor(mulberry32(seed)() * sorted.length)]
+  return pickWinners(keys, seed, 1)[0] ?? null
 }
 
 // ---- group division mode ----
