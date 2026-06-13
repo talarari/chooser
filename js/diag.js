@@ -141,11 +141,21 @@ function summarizeCandidates(list) {
   return counts
 }
 
-// One terse line per state transition:
-// "29ms signaling new/new/gathering/have-local-offer".
-function summarizeTimeline(stateLog) {
-  return stateLog.map((s) =>
-    `${s.atMs}ms ${s.event.replace('statechange', '')} ` +
+// A single time-ordered event log MERGED across every connection — the raw
+// chronology that grouping by state alone would lose. Each line is tagged with
+// the pc id, so an individual connection's history is recoverable (filter by
+// `pc<id>`) and cross-connection interleaving (glare, an answer landing on the
+// wrong pc, who offered first) stays visible. One terse line per transition:
+// "254ms pc7 signaling new/new/gathering/have-local-offer".
+function mergedEventLog(pcSet) {
+  const events = []
+  for (const pc of pcSet) {
+    const info = pcInfo.get(pc) ?? {}
+    for (const s of info.stateLog ?? []) events.push({...s, id: info.id})
+  }
+  events.sort((a, b) => a.atMs - b.atMs)
+  return events.map((s) =>
+    `${s.atMs}ms pc${s.id} ${s.event.replace('statechange', '')} ` +
     `${s.connection}/${s.ice}/${s.gathering}/${s.signaling}`)
 }
 
@@ -180,7 +190,6 @@ async function detailOf(pc) {
     ageMs: info.createdAt ? Date.now() - Date.parse(info.createdAt) : null,
     candidates: summarizeCandidates(info.localCandidates ?? []),
     candidateErrors: summarizeErrors(info.iceCandidateErrors ?? []),
-    timeline: summarizeTimeline(info.stateLog ?? []),
   }
   if (!pc.getStats) return entry
   try {
@@ -225,27 +234,37 @@ function summarizePair(pair, candidates) {
 }
 
 export async function diagDetails() {
-  // Group connections by state signature. trystero can spin up (and abandon)
-  // many peer connections — 20 identical "offer sent, no answer" pcs is one
-  // insight with a count, not 20 near-identical dumps. We build the full detail
-  // (incl. getStats) once per group, using the most-progressed pc as the sample.
+  // Group connections by state signature for the at-a-glance summary — trystero
+  // can spin up (and abandon) many pcs, and 20 identical "offer sent, no answer"
+  // connections are one insight with a count, not 20 near-identical dumps. Full
+  // detail (incl. getStats) is built once per group from the most-progressed pc.
+  // The raw cross-connection chronology is NOT lost: it's in `events` below.
   let config // identical across connections — reported once, not per pc
-  const groups = new Map() // signature -> {count, pc}
+  const groups = new Map() // signature -> {count, ids, pc}
   for (const pc of pcs) {
-    config ??= pcInfo.get(pc)?.config
+    const info = pcInfo.get(pc) ?? {}
+    config ??= info.config
     const sig = signatureOf(pc)
     const g = groups.get(sig)
     if (g) {
       g.count++
+      g.ids.push(info.id)
       if (rank(pc) > rank(g.pc)) g.pc = pc
     } else {
-      groups.set(sig, {count: 1, pc})
+      groups.set(sig, {count: 1, ids: [info.id], pc})
     }
   }
-  const peerConnections = await Promise.all([...groups].map(async ([signature, {count, pc}]) => ({
+  const peerConnections = await Promise.all([...groups].map(async ([signature, {count, ids, pc}]) => ({
     signature,
     count,
+    ids,
     ...await detailOf(pc),
   })))
-  return {...diagSnapshot(), config, peerConnectionCount: pcs.size, peerConnections}
+  return {
+    ...diagSnapshot(),
+    config,
+    peerConnectionCount: pcs.size,
+    peerConnections,
+    events: mergedEventLog(pcs),
+  }
 }
