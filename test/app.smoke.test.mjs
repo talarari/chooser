@@ -66,10 +66,16 @@ before(async () => {
   await writeFile(join(dir, 'vendor', 'trystero-nostr.min.js'), VENDOR_MOCK)
 
   const els = {}
+  globalThis.__ctxCalls = []
   const canvas = {
     ...el('stage'),
     clientWidth: 800, clientHeight: 600, width: 0, height: 0,
-    getContext: () => new Proxy({}, {get: () => () => {}}),
+    getContext: () => new Proxy({}, {
+      get(target, prop) {
+        if (prop in target) return target[prop]
+        return (...args) => globalThis.__ctxCalls.push([String(prop), ...args])
+      },
+    }),
   }
   els['#stage'] = canvas
   globalThis.__sent = []
@@ -241,11 +247,18 @@ test('groups mode: pick toggle off, host divides fingers into colored groups', (
   const banner = globalThis.document.querySelector('#banner')
   assert.ok(!banner.hidden && banner.textContent === 'Split into 3 groups', 'banner shows the division')
 
-  // lift everything, let the reveal expire, and switch back to pick mode
+  // lift everything; the group labels should still draw during the minimum
+  // reveal window, matching winners mode's lingering picked state.
   const up = listeners['window:pointerup'][0]
+  globalThis.__ctxCalls.length = 0
   up({pointerId: 1})
   up({pointerId: 2})
   actions.fingers.onMessage({}, {peerId: 'zzzRemotePeer'})
+  step(100, 2)
+  assert.ok(globalThis.__ctxCalls.some(([name]) => name === 'fillText'),
+    'group labels should linger after fingers are lifted')
+
+  // let the reveal expire, and switch back to pick mode
   step(9000, 20)
   assert.ok(banner.hidden, 'round should reset after the reveal')
   listeners['mode-toggle:click'][0]() // back to winners for later tests
