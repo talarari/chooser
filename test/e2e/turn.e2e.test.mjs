@@ -4,18 +4,19 @@
 // so a green run here means the Cloudflare TURN fallback added for iPhone Safari
 // (issue #2) actually relays traffic end to end.
 //
-// TURN credentials are minted by the Cloudflare Worker in turn-worker/ (the API
-// token is a secret that can't ship in client JS), so this test needs a running
-// Worker and real network egress to Cloudflare TURN. Point it at one with:
+// This runs against the REAL production setup: short-lived credentials are
+// minted by the Cloudflare Worker in turn-worker/ (the API token is a secret
+// that can't ship in client JS) and traffic relays through Cloudflare TURN —
+// the same path production uses. It defaults to the deployed Worker so it always
+// runs (no skip); override with TURN_WORKER_URL to point at a `wrangler dev` or
+// staging Worker:
 //
-//   TURN_WORKER_URL=https://chooser-turn.<subdomain>.workers.dev npm run e2e:turn
-//   # or against a local `wrangler dev`:
 //   TURN_WORKER_URL=http://127.0.0.1:8787 npm run e2e:turn
 //
-// Without TURN_WORKER_URL the test SKIPS (locked-down CI has no TURN key and
-// filters STUN/TURN egress anyway), so it validates the relay path only where a
-// Worker + connectivity exist. Real iPhone Safari confirmation still needs a
-// device or cloud lab (issue #2).
+// It therefore needs real network egress to Cloudflare TURN; from a host that
+// blocks STUN/TURN egress no relay candidate is gathered and it fails (by
+// design — that's a real broken-relay signal, not a skip). Real iPhone Safari
+// confirmation still needs a device or cloud lab (issue #2).
 import {test, describe, before, after} from 'node:test'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -25,7 +26,7 @@ import {startServer} from './server.mjs'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const ROOM = 'TURNROOM'
-const WORKER = process.env.TURN_WORKER_URL
+const WORKER = process.env.TURN_WORKER_URL || 'https://chooser-turn.talarari.workers.dev'
 
 // Injected before app code: flip a window flag when a relay (TURN) candidate is
 // gathered, so the test can tell "TURN works" apart from "no relay candidate"
@@ -55,7 +56,6 @@ function turnSuite(engine, label) {
     let relay, server, browser, A, B
 
     before(async () => {
-      if (!WORKER) return // nothing to launch when we're going to skip
       relay = await startRelay()
       server = await startServer(repo)
       browser = await engine.launch()
@@ -83,15 +83,9 @@ function turnSuite(engine, label) {
     })
 
     test('two peers connect using only TURN relay candidates', async (t) => {
-      if (!WORKER) {
-        t.skip('Set TURN_WORKER_URL to a deployed Worker or `wrangler dev` URL to ' +
-          'validate the Cloudflare TURN relay path (see turn-worker/README.md). ' +
-          'Real iPhone Safari confirmation still needs a device (issue #2).')
-        return
-      }
-      // With a Worker configured we expect TURN to allocate. No relay candidate
-      // here is a real failure (broken Worker/credentials, or blocked egress),
-      // not a skip — that's the whole point of running with TURN_WORKER_URL.
+      // TURN must allocate against the real Worker + Cloudflare TURN. No relay
+      // candidate is a real failure (broken Worker/credentials, or blocked
+      // egress), never a skip — exercising the production relay path is the point.
       const [ra, rb] = await Promise.all([gotRelayCandidate(A), gotRelayCandidate(B)])
       t.assert.ok(ra && rb,
         'no relay candidate gathered — the Worker did not return working TURN ' +

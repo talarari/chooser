@@ -19,6 +19,13 @@ import {startServer} from './server.mjs'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
+// The real Cloudflare TURN Worker (turn-worker/), same one production uses. The
+// relay suites mint short-lived credentials from it and connect over Cloudflare
+// TURN, so e2e exercises the real production relay path — not a local stand-in.
+// localhost is always an allowed origin on the Worker, so CI mints fine.
+// Override with TURN_WORKER_URL to point at a `wrangler dev` or staging Worker.
+const TURN_WORKER_URL = process.env.TURN_WORKER_URL || 'https://chooser-turn.talarari.workers.dev'
+
 // Drive a finger down by dispatching the same PointerEvent the app's real
 // listeners handle (canvas pointerdown), positioned by fraction of the canvas
 // so it is resolution-independent.
@@ -48,8 +55,16 @@ const canvasHasInk = (page) => page.waitForFunction(() => {
 }, null, {timeout: 10000})
 
 // Register the full connectivity suite for one Playwright engine.
-export function connectSuite(browserType, label) {
-  describe(`${label} ↔ ${label} WebRTC`, () => {
+//
+// turnRelay: route the media/data path through the real Cloudflare TURN Worker
+// and force `iceTransportPolicy:'relay'` (production's cross-network path). This
+// is how the WebKit (Safari-engine) suite connects — WebKit gathers only
+// unresolvable mDNS host candidates over loopback, so a relay candidate is the
+// only one that works, exactly as on real iPhone Safari (issue #2). Default
+// (Chromium) stays direct: it connects over loopback host candidates with no
+// TURN, guarding production's same-network direct path.
+export function connectSuite(browserType, label, {turnRelay = false} = {}) {
+  describe(`${label} ↔ ${label} WebRTC${turnRelay ? ' (relay)' : ''}`, () => {
     const ROOM = 'E2EROOM'
     let relay, server, browser, A, B
 
@@ -57,9 +72,16 @@ export function connectSuite(browserType, label) {
       relay = await startRelay()
       server = await startServer(repo)
       browser = await browserType.launch()
-      // ?turn= (empty) disables the TURN fetch so this suite stays hermetic and
-      // offline — peers connect over loopback host candidates, no Worker call.
-      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}&turn=#${ROOM}`
+      // turnRelay: app fetches short-lived creds from the real Worker via the
+      // ?turn= seam and ice=relay forces the connection onto Cloudflare TURN (so
+      // loopback host candidates can't mask the relay). Otherwise ?turn= (empty)
+      // disables TURN entirely and peers connect directly over loopback host
+      // candidates. Signaling always runs through the local Nostr relay so the
+      // test stays deterministic; only the WebRTC media/data path is production.
+      const turnParams = turnRelay
+        ? `&turn=${encodeURIComponent(TURN_WORKER_URL)}&ice=relay`
+        : '&turn='
+      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}${turnParams}#${ROOM}`
 
       const open = async (name) => {
         const ctx = await browser.newContext()

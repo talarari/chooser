@@ -38,23 +38,25 @@ Unit + smoke tests cover the deterministic selection logic in `js/chooser.js` an
 ```sh
 npm install            # devDeps: playwright + ws
 npm run e2e:install    # one-time: download the Chromium + WebKit binaries
-npm run e2e            # Chromium↔Chromium (the regression guard)
-npm run e2e:webkit     # WebKit↔WebKit (Safari smoke — see below)
-npm run e2e:turn       # forced-relay: validates the TURN fallback (see below)
+npm run e2e            # Chromium↔Chromium, direct (the regression guard)
+npm run e2e:webkit     # WebKit↔WebKit over real Cloudflare TURN (Safari — see below)
+npm run e2e:turn       # forced-relay over real Cloudflare TURN (see below)
 npm run e2e:all        # all of the above
 ```
 
+The relay suites (`e2e:webkit`, `e2e:turn`) connect over the **real Cloudflare TURN** path production uses — they mint short-lived credentials from the deployed Worker (`turn-worker/`) and relay through Cloudflare TURN — so they need outbound egress to Cloudflare TURN. From a host that blocks STUN/TURN egress they fail (no relay candidate gathered) rather than skip. Override the Worker with `TURN_WORKER_URL=…` (e.g. a local `wrangler dev`).
+
 A hermetic Chromium↔Chromium test (`test/e2e/`) drives **two real browser pages** through a full round over **real `RTCPeerConnection`/data channels**. It needs no public network: the pages connect via loopback host candidates, and signaling runs through a tiny local Nostr relay (`test/e2e/relay.mjs`, minimal NIP-01) that the app is pointed at with a `?relays=ws://localhost:…` test seam in `js/net.js`. It asserts both peers reach "2 devices", a finger drawn on one page renders remotely on the other, and a held pick yields one winner both pages agree on — the guard that catches networking regressions the mocked tests can't see. The suite is parametrised by engine in `test/e2e/suite.mjs`.
 
-#### Safari (WebKit) smoke — `npm run e2e:webkit`
+#### Safari (WebKit) over TURN — `npm run e2e:webkit`
 
-The same suite runs against Playwright's **WebKit**, the engine behind Safari — the closest stand-in for iPhone Safari available on Linux/CI (issue #2). Over hermetic loopback **it fails**, and on purpose: WebKit gathers only mDNS `.local` host candidates, each with a different obfuscated hostname that the peer can't resolve over loopback, so no candidate pair forms and the peers never reach "2 devices". That's the same class of failure real Safari hits on a LAN — so this test reproduces the bug rather than masking it, and is wired into CI as a **non-blocking** job (`continue-on-error`, absent from deploy's `needs`). Caveat: WebKit-on-Linux is **not** Safari and its WebRTC differs from real iOS Safari, so a real iPhone (or a cloud device lab) remains the source of truth.
+The same suite runs against Playwright's **WebKit**, the engine behind Safari — the closest stand-in for iPhone Safari available on Linux/CI (issue #2). WebKit gathers only mDNS `.local` host candidates, each with an obfuscated hostname the peer can't resolve over loopback, so no *direct* candidate pair ever forms — the same class of failure real Safari hits on a LAN. So this suite connects over the **real Cloudflare TURN** relay (short-lived creds from the Worker, `iceTransportPolicy: 'relay'`): the relay candidate has a routable address with nothing to resolve, so the Safari-engine peers reach "2 devices" exactly as they do in production. It is wired into CI as a **non-blocking** job (`continue-on-error`, absent from deploy's `needs`) so a transient TURN hiccup can't wedge a deploy, but it is expected to pass. Caveat: WebKit-on-Linux is **not** Safari and its WebRTC differs from real iOS Safari, so a real iPhone (or a cloud device lab) remains the source of truth.
 
-#### TURN fallback — `npm run e2e:turn`
+#### Forced relay — `npm run e2e:turn`
 
-The Safari fix is a **TURN relay fallback** (see "How it works"): a relayed candidate has a real public address, so it sidesteps the mDNS resolution and NAT traversal that strand Safari on a LAN. This test forces ICE through TURN only (`iceTransportPolicy: 'relay'`, via the `?ice=relay` seam in `js/net.js`) and asserts two peers still connect — so a direct path can't hide a broken relay.
+The Safari/cross-network fix is a **TURN relay fallback** (see "How it works"): a relayed candidate has a real routable address, so it sidesteps the mDNS resolution and NAT traversal that strand peers with no direct path. This test forces ICE through TURN only (`iceTransportPolicy: 'relay'`, via the `?ice=relay` seam in `js/net.js`) on both Chromium and WebKit and asserts two peers still connect — so a direct path can't hide a broken relay.
 
-TURN credentials are minted by the Cloudflare Worker in [`turn-worker/`](turn-worker/) (the API token is a secret that can't ship in client JS), so this test needs a running Worker and real egress to Cloudflare TURN. Point it at one with `TURN_WORKER_URL=https://chooser-turn.<subdomain>.workers.dev npm run e2e:turn` (or a local `wrangler dev` URL). Without `TURN_WORKER_URL` it **skips** — hermetic/locked-down CI has no TURN key and filters STUN/TURN egress anyway, so the relay path can only be validated where a Worker plus connectivity exist (a dev machine). Because of that, and because WebKit-on-Linux ≠ Safari, the TURN fallback can't be fully proven in CI; **final confirmation is a real iPhone Safari ↔ Chrome session** on the same and on different networks (issue #2 acceptance criteria).
+It runs against the **real production setup**: short-lived credentials minted by the Cloudflare Worker in [`turn-worker/`](turn-worker/) (the API token is a secret that can't ship in client JS), relaying through Cloudflare TURN. It defaults to the deployed Worker so it always runs (no skip); override with `TURN_WORKER_URL=…` (e.g. a local `wrangler dev`). It therefore needs real egress to Cloudflare TURN — from a host that filters STUN/TURN egress it **fails** (no relay candidate gathered), which is a real broken-relay signal, not a skip. Because WebKit-on-Linux ≠ Safari, **final confirmation is still a real iPhone Safari ↔ Chrome session** on the same and on different networks (issue #2 acceptance criteria).
 
 ## Deploy to GitHub Pages
 
