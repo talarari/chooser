@@ -45,10 +45,11 @@ jobs:
   #     gathers only mDNS .local host candidates it can't resolve for the peer,
   #     so without a reachable TURN relay no connection forms.
   #   * e2e:turn — forces ICE through the Open Relay TURN fallback and asserts
-  #     two peers connect over the relay. It SKIPS when TURN egress is blocked
-  #     (most locked-down CI, incl. this one — no UDP egress), so it validates
-  #     the relay path only where connectivity exists. WebKit-on-Linux is not
-  #     Safari; real confirmation needs a device/cloud lab.
+  #     two peers connect over the relay. It SKIPS when TURN is unreachable
+  #     (most locked-down CI, incl. this one, allowlists egress and filters
+  #     STUN/TURN flows), so it validates the relay path only where connectivity
+  #     exists. WebKit-on-Linux is not Safari; real confirmation needs a
+  #     device/cloud lab.
   e2e-safari:
     runs-on: ubuntu-latest
     continue-on-error: true

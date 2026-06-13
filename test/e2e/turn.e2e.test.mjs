@@ -5,8 +5,9 @@
 // (issue #2) actually relays traffic end to end.
 //
 // Unlike the hermetic connect suite, this needs real network egress to the TURN
-// server. Locked-down CI sandboxes commonly block UDP egress and can't reach any
-// TURN relay (this repo's CI included), and the free public Open Relay is itself
+// server. Locked-down CI sandboxes commonly allowlist egress (DNS + HTTPS to
+// approved hosts) and filter STUN/TURN flows, so they can't reach any TURN relay
+// (this repo's CI included), and the free public Open Relay is itself
 // best-effort. So the test PROBES whether a relay candidate can be gathered and
 // SKIPS — rather than fails — when TURN is unreachable. It therefore validates
 // the relay path wherever connectivity exists (a dev machine, a permissive CI),
@@ -78,8 +79,8 @@ function turnSuite(engine, label) {
       const [ra, rb] = await Promise.all([gotRelayCandidate(A), gotRelayCandidate(B)])
       if (!ra || !rb) {
         t.skip('TURN unreachable from this environment (no relay candidate gathered — ' +
-          'UDP egress blocked or the free relay is down). The relay path can only be ' +
-          'validated where TURN egress exists; confirm iPhone Safari on a real device (issue #2).')
+          'STUN/TURN egress is filtered here, or the free relay is down). The relay path ' +
+          'can only be validated where TURN egress exists; confirm iPhone Safari on a real device (issue #2).')
         return
       }
       // A relay candidate means the TURN allocation succeeded, so the relay-only
