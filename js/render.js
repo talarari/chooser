@@ -124,16 +124,18 @@ function drawGroupFinger(ctx, f, now, pickedAt) {
 }
 
 export function draw(ctx, vm) {
-  const {w, h, now, fingers, state, progress, winner, pickedAt} = vm
+  const {w, h, now, fingers, state, progress, winners, pickedAt} = vm
 
   ctx.clearRect(0, 0, w, h)
 
-  if (state === 'picked' && winner) {
+  if (state === 'picked' && winners && winners.length) {
+    // winners reveal: dim every non-winning finger, then pop each winner
     const dim = clamp01((now - pickedAt) / 400)
+    const winnerKeys = new Set(winners.map((w) => w.key))
     for (const f of fingers) {
-      if (f.key !== winner.key) drawFinger(ctx, f, now, {progress: 0, dim})
+      if (!winnerKeys.has(f.key)) drawFinger(ctx, f, now, {progress: 0, dim})
     }
-    drawWinner(ctx, winner, now, pickedAt)
+    for (const w of winners) drawWinner(ctx, w, now, pickedAt)
   } else if (state === 'picked') {
     // groups reveal — no single winner; color every finger by its group
     for (const f of fingers) drawGroupFinger(ctx, f, now, pickedAt)

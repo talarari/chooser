@@ -162,7 +162,7 @@ button.primary {
   font-size: 0.7rem;
 }
 
-/* Mode controls: pick one finger vs divide everyone into N groups. */
+/* Mode controls: pick N winners vs divide everyone into N groups. */
 #mode-bar {
   pointer-events: none;
   display: flex;
@@ -182,7 +182,7 @@ button.primary {
   padding: 0.3rem 0.8rem;
 }
 
-#group-stepper {
+#count-stepper {
   pointer-events: none;
   display: flex;
   align-items: center;
@@ -195,7 +195,7 @@ button.primary {
   line-height: 1;
 }
 
-#group-count-label {
+#count-label {
   color: var(--muted);
   font-size: 0.75rem;
   min-width: 5ch;
