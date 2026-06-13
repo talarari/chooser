@@ -2,8 +2,9 @@ import {connect, selfId, relayStatus, networkDiagnostics} from './net.js'
 import {diagDetails, diagSnapshot} from './diag.js'
 import {draw} from './render.js'
 import {
-  MIN_FINGERS, HOLD_MS, REVEAL_MIN_MS, REVEAL_MAX_MS,
-  fingerKey, colorFor, peerName, sanitizeName, pickWinner, randomCode, normalizeCode,
+  MIN_FINGERS, HOLD_MS, REVEAL_MIN_MS, REVEAL_MAX_MS, MIN_GROUPS, MAX_GROUPS, NEUTRAL_COLOR,
+  fingerKey, colorFor, peerName, sanitizeName, pickWinner, assignGroups, groupColor,
+  randomCode, normalizeCode,
 } from './chooser.js'
 
 const $ = (sel) => document.querySelector(sel)
@@ -21,6 +22,9 @@ const diagEl = $('#diag')
 const bannerEl = $('#banner')
 const tipEl = $('#tip')
 const errEl = $('#err')
+const modeToggleEl = $('#mode-toggle')
+const groupStepperEl = $('#group-stepper')
+const groupCountLabelEl = $('#group-count-label')
 
 // surface runtime failures on screen — phones have no devtools handy
 const errorLog = []
@@ -48,8 +52,15 @@ let state = 'idle' // idle | armed | picked
 let stableSince = 0
 let lastSig = ''
 let progress = 0
-let winner = null // {key, peerId, x, y, local, color}
+let winner = null // {key, peerId, x, y, local, color} — set in 'pick' mode
+let groupAssignment = null // Map<fingerKey, groupIndex> — set in 'groups' mode
 let pickedAt = 0
+
+// Selection mode, shared across the room. 'pick' chooses one finger (the
+// original behavior); 'groups' starts everyone neutral and, on the same hold,
+// divides the fingers into `groupCount` colored groups instead of a winner.
+let mode = 'pick' // 'pick' | 'groups'
+let groupCount = 2
 
 const PEER_STALE_MS = 3000
 
@@ -87,6 +98,51 @@ function ensurePeer(peerId) {
   }
   return peer
 }
+
+// ---- selection mode ----
+
+function renderMode() {
+  modeToggleEl.textContent = mode === 'groups' ? 'Groups' : 'Pick one'
+  groupStepperEl.hidden = mode !== 'groups'
+  groupCountLabelEl.textContent = `${groupCount} groups`
+  tipEl.textContent = mode === 'groups'
+    ? `Everyone holds a finger — they'll be split into ${groupCount} groups`
+    : 'Touch and hold with at least two fingers — across any devices in the room'
+}
+
+// Apply a mode update that arrived from a peer (no rebroadcast).
+function applyMode(data) {
+  if (!data) return
+  if (data.mode === 'pick' || data.mode === 'groups') mode = data.mode
+  if (Number.isFinite(data.groupCount)) {
+    groupCount = Math.min(MAX_GROUPS, Math.max(MIN_GROUPS, Math.floor(data.groupCount)))
+  }
+  renderMode()
+}
+
+// Apply a local change and tell the room — mode is a shared room setting.
+function broadcastMode() {
+  renderMode()
+  net?.sendMode({mode, groupCount})
+}
+
+modeToggleEl.addEventListener('click', () => {
+  mode = mode === 'groups' ? 'pick' : 'groups'
+  reset() // clear any in-progress reveal when switching modes
+  broadcastMode()
+})
+
+$('#group-dec').addEventListener('click', () => {
+  groupCount = Math.max(MIN_GROUPS, groupCount - 1)
+  broadcastMode()
+})
+
+$('#group-inc').addEventListener('click', () => {
+  groupCount = Math.min(MAX_GROUPS, groupCount + 1)
+  broadcastMode()
+})
+
+renderMode()
 
 // ---- landing / room entry ----
 
@@ -144,11 +200,14 @@ async function joinNet(code) {
     onName: (data, peerId) => {
       ensurePeer(peerId).name = sanitizeName(data) ?? undefined
     },
+    onMode: (data) => applyMode(data),
+    onGroup: (data) => applyGroup(data),
     onPeerJoin: (peerId) => {
       ensurePeer(peerId)
       // bring the newcomer up to date
       net.sendFingers(packFingers(), peerId)
       net.sendName(myName, peerId)
+      net.sendMode({mode, groupCount}, peerId)
     },
     onPeerLeave: (peerId) => peers.delete(peerId),
   })
@@ -252,6 +311,8 @@ async function diagnosticText() {
       peers: visiblePeers(),
       localFingerCount: localFingers.size,
       state,
+      mode,
+      groupCount,
       isHost: isHost(),
     },
     webrtc: await diagDetails(),
@@ -352,7 +413,19 @@ function collectFingers(now) {
   for (const f of out) {
     if (!bornAt.has(f.key)) bornAt.set(f.key, now)
     f.bornAt = bornAt.get(f.key)
-    f.color = colorFor(f.key)
+    if (groupAssignment) {
+      // a group division is revealed: color each finger by its group (driven by
+      // the assignment itself, so it renders even if a peer's mode hasn't synced)
+      const g = groupAssignment.get(f.key)
+      f.group = g ?? null
+      f.color = g == null ? NEUTRAL_COLOR : groupColor(g)
+    } else if (mode === 'groups') {
+      // groups mode, pre-reveal: no finger is colored yet
+      f.group = null
+      f.color = NEUTRAL_COLOR
+    } else {
+      f.color = colorFor(f.key)
+    }
     f.px = f.x * w
     f.py = f.y * h
   }
@@ -366,6 +439,26 @@ function doPick(fingers) {
   const keys = fingers.map((f) => f.key)
   net.sendPick({seed, keys})
   applyPick({seed, keys})
+}
+
+function doGroup(fingers) {
+  const seed = (Math.random() * 2 ** 32) >>> 0
+  const keys = fingers.map((f) => f.key)
+  const count = groupCount
+  net.sendGroup({seed, keys, count})
+  applyGroup({seed, keys, count})
+}
+
+function applyGroup({seed, keys, count}) {
+  if (state === 'picked') return
+  groupAssignment = assignGroups(keys, seed, count)
+  winner = null
+  state = 'picked'
+  pickedAt = performance.now()
+  navigator.vibrate?.(40)
+  bannerEl.hidden = false
+  bannerEl.style.color = '' // group reveal has no single color; use the default
+  bannerEl.textContent = `Split into ${count} group${count === 1 ? '' : 's'}`
 }
 
 function applyPick({seed, keys}) {
@@ -394,6 +487,7 @@ function applyPick({seed, keys}) {
 function reset() {
   state = 'idle'
   winner = null
+  groupAssignment = null
   progress = 0
   stableSince = performance.now()
   bannerEl.hidden = true
@@ -424,7 +518,10 @@ function tick() {
     if (fingers.length >= MIN_FINGERS) {
       state = 'armed'
       progress = (now - stableSince) / HOLD_MS
-      if (progress >= 1 && isHost()) doPick(fingers)
+      if (progress >= 1 && isHost()) {
+        if (mode === 'groups') doGroup(fingers)
+        else doPick(fingers)
+      }
     } else {
       state = 'idle'
       progress = 0

@@ -205,6 +205,53 @@ test('renaming yourself broadcasts, remote names appear in the banner', () => {
   assert.ok(globalThis.document.querySelector('#banner').hidden)
 })
 
+test('groups mode: pick toggle off, host divides fingers into colored groups', () => {
+  const {actions} = globalThis.__mock
+  const sent = globalThis.__sent
+  sent.length = 0
+
+  // switch to groups mode and bump the group count — both broadcast as `mode`
+  listeners['mode-toggle:click'][0]()
+  let modeMsg = sent.filter(([name]) => name === 'mode').at(-1)
+  assert.ok(modeMsg && modeMsg[1].mode === 'groups', 'switching to groups broadcasts the mode')
+  assert.equal(globalThis.document.querySelector('#mode-toggle').textContent, 'Groups')
+  assert.ok(!globalThis.document.querySelector('#group-stepper').hidden, 'group stepper shows in groups mode')
+
+  listeners['group-inc:click'][0]() // 2 -> 3 groups
+  modeMsg = sent.filter(([name]) => name === 'mode').at(-1)
+  assert.equal(modeMsg[1].groupCount, 3, 'changing the count broadcasts it')
+  assert.equal(globalThis.document.querySelector('#group-count-label').textContent, '3 groups')
+
+  // two local fingers + one remote finger, held stable past HOLD_MS as host
+  const down = listeners['stage:pointerdown'][0]
+  down({pointerId: 1, clientX: 100, clientY: 100, preventDefault: () => {}})
+  down({pointerId: 2, clientX: 500, clientY: 400, preventDefault: () => {}})
+  step(100, 5)
+  for (let i = 0; i < 4; i++) {
+    actions.fingers.onMessage({7: [0.5, 0.5]}, {peerId: 'zzzRemotePeer'})
+    step(1000, 10)
+  }
+
+  // host should broadcast a `group` division, not a `pick`
+  const groupMsg = sent.find(([name]) => name === 'group')
+  assert.ok(groupMsg, 'host should broadcast a group division after the hold')
+  assert.ok(!sent.some(([name]) => name === 'pick'), 'no winner is picked in groups mode')
+  assert.equal(groupMsg[1].count, 3)
+  assert.equal(groupMsg[1].keys.length, 3, 'division should cover all three fingers')
+  const banner = globalThis.document.querySelector('#banner')
+  assert.ok(!banner.hidden && banner.textContent === 'Split into 3 groups', 'banner shows the division')
+
+  // lift everything, let the reveal expire, and switch back to pick mode
+  const up = listeners['window:pointerup'][0]
+  up({pointerId: 1})
+  up({pointerId: 2})
+  actions.fingers.onMessage({}, {peerId: 'zzzRemotePeer'})
+  step(9000, 20)
+  assert.ok(banner.hidden, 'round should reset after the reveal')
+  listeners['mode-toggle:click'][0]() // back to pick for later tests
+  assert.equal(globalThis.document.querySelector('#mode-toggle').textContent, 'Pick one')
+})
+
 test('rejoins the room after a long page suspension', async () => {
   const joinsBefore = globalThis.__joins
   const fireVisibility = (state) => {

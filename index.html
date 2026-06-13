@@ -32,6 +32,14 @@
       <span id="peer-count"></span>
       <span id="diag" title="WebRTC connection state"></span>
       <button id="share-diagnostic" class="diagnostic-chip" title="Share connection diagnostics">Debug</button>
+      <div id="mode-bar">
+        <button id="mode-toggle" class="mode-chip" title="Switch between picking one finger and dividing fingers into groups">Pick one</button>
+        <div id="group-stepper" hidden>
+          <button id="group-dec" class="step-btn" aria-label="Fewer groups">−</button>
+          <span id="group-count-label">2 groups</span>
+          <button id="group-inc" class="step-btn" aria-label="More groups">+</button>
+        </div>
+      </div>
     </header>
     <div id="banner" hidden></div>
     <p id="tip">Touch and hold with at least two fingers — across any devices in the room</p>

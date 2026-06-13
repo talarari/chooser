@@ -69,6 +69,41 @@ export function pickWinner(keys, seed) {
   return sorted[Math.floor(mulberry32(seed)() * sorted.length)]
 }
 
+// ---- group division mode ----
+
+export const MIN_GROUPS = 2
+export const MAX_GROUPS = 8
+
+// Ring color shown in groups mode before the division is revealed — no finger
+// is "colored" until the groups are assigned, so they start out neutral.
+export const NEUTRAL_COLOR = '#6b7390'
+
+// Deterministically split the finger keys into `count` balanced groups. Like
+// pickWinner, every peer runs this on the same {seed, keys, count} and derives
+// an identical assignment with no coordination — so all devices agree on who
+// landed in which group. Returns a Map of key -> 0-based group index; group
+// sizes differ by at most one.
+export function assignGroups(keys, seed, count) {
+  const groups = Math.max(1, Math.floor(count))
+  // Sort first so the shuffle is order-independent, then Fisher–Yates with the
+  // seeded PRNG so membership is random but agreed across peers.
+  const shuffled = [...keys].sort()
+  const rand = mulberry32(seed)
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  // Round-robin the shuffled keys into groups → sizes differ by at most one.
+  const out = new Map()
+  shuffled.forEach((key, i) => out.set(key, i % groups))
+  return out
+}
+
+// Stable, distinct color per group index, drawn from the shared palette.
+export function groupColor(index) {
+  return PALETTE[index % PALETTE.length]
+}
+
 export function randomCode(len = 4) {
   let code = ''
   for (let i = 0; i < len; i++) {

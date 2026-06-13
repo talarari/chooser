@@ -86,6 +86,43 @@ function drawWinner(ctx, f, now, pickedAt) {
   ctx.restore()
 }
 
+// Groups-mode reveal: every finger lights up in its group color and shows its
+// group number, instead of one finger winning.
+function drawGroupFinger(ctx, f, now, pickedAt) {
+  const pop = easeOutBack(clamp01((now - pickedAt) / 350))
+  const breathe = 1 + 0.04 * Math.sin(now / 300 + f.bornAt)
+  const r = RING_RADIUS * (f.local ? 1 : 0.8) * pop * breathe
+
+  ctx.save()
+  ctx.translate(f.px, f.py)
+
+  // glow disc
+  ctx.beginPath()
+  ctx.arc(0, 0, r * 0.85, 0, Math.PI * 2)
+  ctx.fillStyle = f.color
+  ctx.globalAlpha = 0.3
+  ctx.fill()
+  ctx.globalAlpha = 1
+
+  // ring
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.lineWidth = RING_WIDTH
+  ctx.strokeStyle = f.color
+  ctx.stroke()
+
+  // group number, so similar palette colors are still tellable apart
+  if (f.group != null) {
+    ctx.fillStyle = f.color
+    ctx.font = `700 ${Math.round(r * 0.7)}px -apple-system, "Segoe UI", system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(String(f.group + 1), 0, 0)
+  }
+
+  ctx.restore()
+}
+
 export function draw(ctx, vm) {
   const {w, h, now, fingers, state, progress, winner, pickedAt} = vm
 
@@ -97,6 +134,9 @@ export function draw(ctx, vm) {
       if (f.key !== winner.key) drawFinger(ctx, f, now, {progress: 0, dim})
     }
     drawWinner(ctx, winner, now, pickedAt)
+  } else if (state === 'picked') {
+    // groups reveal — no single winner; color every finger by its group
+    for (const f of fingers) drawGroupFinger(ctx, f, now, pickedAt)
   } else {
     for (const f of fingers) {
       drawFinger(ctx, f, now, {progress: state === 'armed' ? progress : 0, dim: 0})

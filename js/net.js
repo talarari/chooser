@@ -166,7 +166,7 @@ export function networkDiagnostics() {
   }
 }
 
-export async function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, onPeerLeave}) {
+export async function connect(roomCode, {onFingers, onPick, onName, onMode, onGroup, onPeerJoin, onPeerLeave}) {
   const turnConfig = await fetchTurnServers()
   const room = joinRoom({
     appId: APP_ID,
@@ -191,10 +191,16 @@ export async function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, 
   const fingers = room.makeAction('fingers')
   const pick = room.makeAction('pick')
   const name = room.makeAction('name')
+  // `mode` syncs the room setting (pick one vs divide into N groups); `group`
+  // is the division reveal, the groups-mode analogue of `pick`.
+  const mode = room.makeAction('mode')
+  const group = room.makeAction('group')
 
   fingers.onMessage = (data, {peerId}) => onFingers(data, peerId)
   pick.onMessage = (data, {peerId}) => onPick(data, peerId)
   name.onMessage = (data, {peerId}) => onName(data, peerId)
+  mode.onMessage = (data, {peerId}) => onMode?.(data, peerId)
+  group.onMessage = (data, {peerId}) => onGroup?.(data, peerId)
   room.onPeerJoin = onPeerJoin
   room.onPeerLeave = onPeerLeave
 
@@ -202,6 +208,8 @@ export async function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, 
     sendFingers: (data, target) => fingers.send(data, target ? {target} : {}),
     sendPick: (data) => pick.send(data),
     sendName: (data, target) => name.send(data, target ? {target} : {}),
+    sendMode: (data, target) => mode.send(data, target ? {target} : {}),
+    sendGroup: (data) => group.send(data),
     leave: () => room.leave(),
   }
 }
