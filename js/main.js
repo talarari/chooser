@@ -55,6 +55,7 @@ let lastSig = ''
 let progress = 0
 let winners = [] // [{key, peerId, px, py, local, color}] — set in 'winners' mode
 let groupAssignment = null // Map<fingerKey, groupIndex> — set in 'groups' mode
+let groupFingers = [] // picked-time finger snapshot for lingering groups reveal
 let pickedAt = 0
 
 // Selection mode, shared across the room. 'winners' picks `winnerCount` fingers
@@ -473,10 +474,27 @@ function doGroup(fingers) {
 
 function applyGroup({seed, keys, count}) {
   if (state === 'picked') return
+  const now = performance.now()
+  const present = collectFingers(now)
   groupAssignment = assignGroups(keys, seed, count)
+  groupFingers = keys.map((key) => {
+    const f = present.find((x) => x.key === key)
+    const peerId = key.split('/')[0]
+    const g = groupAssignment.get(key)
+    return {
+      key,
+      peerId,
+      local: peerId === selfId,
+      bornAt: f?.bornAt ?? now,
+      group: g ?? null,
+      color: g == null ? NEUTRAL_COLOR : groupColor(g),
+      px: f ? f.px : canvas.clientWidth / 2,
+      py: f ? f.py : canvas.clientHeight / 2,
+    }
+  })
   winners = []
   state = 'picked'
-  pickedAt = performance.now()
+  pickedAt = now
   navigator.vibrate?.(40)
   bannerEl.hidden = false
   bannerEl.style.color = '' // group reveal has no single color; use the default
@@ -521,6 +539,7 @@ function reset() {
   state = 'idle'
   winners = []
   groupAssignment = null
+  groupFingers = []
   progress = 0
   stableSince = performance.now()
   bannerEl.hidden = true
@@ -545,6 +564,16 @@ function tick() {
           w.py = f.py
         }
       }
+    } else if (groupFingers.length) {
+      // keep the groups reveal readable after users lift their fingers, while
+      // still tracking live fingers until they go away.
+      for (const groupFinger of groupFingers) {
+        const f = fingers.find((x) => x.key === groupFinger.key)
+        if (f) {
+          groupFinger.px = f.px
+          groupFinger.py = f.py
+        }
+      }
     }
   } else {
     const sig = fingers.map((f) => f.key).sort().join('|')
@@ -563,7 +592,8 @@ function tick() {
     }
   }
 
-  draw(ctx, {w: canvas.clientWidth, h: canvas.clientHeight, now, fingers, state, progress, winners, pickedAt})
+  const renderFingers = state === 'picked' && groupFingers.length ? groupFingers : fingers
+  draw(ctx, {w: canvas.clientWidth, h: canvas.clientHeight, now, fingers: renderFingers, state, progress, winners, pickedAt})
 
   const relays = relayStatus()
   peerCountEl.textContent =
