@@ -26,6 +26,14 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # The public Worker URL (CORS-locked, no secret) gives the connect suites a
+    # real TURN relay. With it set, Chromium keeps mDNS obfuscation on — which
+    # reproduces the iPhone condition (only unresolvable .local host candidates,
+    # issue #2) — and the run proves the TURN relay rescues the connection. It
+    # also de-flakes CI: GitHub runners resolve loopback mDNS unreliably, so
+    # without a relay these peers intermittently fail to pair.
+    env:
+      TURN_WORKER_URL: https://chooser-turn.talarari.workers.dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,20 +47,20 @@ jobs:
 
   # Safari signals — non-blocking (continue-on-error, absent from deploy's
   # `needs`) so they surface iPhone Safari status (issue #2) without gating
-  # deploys. Both are best-effort, not deploy gates:
-  #   * e2e:webkit — WebKit (Safari's engine), the closest stand-in for iPhone
-  #     Safari on Linux/CI. Over hermetic loopback it reproduces the bug: WebKit
-  #     gathers only mDNS .local host candidates it can't resolve for the peer,
-  #     so without a reachable TURN relay no connection forms.
-  #   * e2e:turn — forces ICE through the Cloudflare TURN fallback and asserts
-  #     two peers connect over the relay. TURN credentials come from the Worker
-  #     in turn-worker/, so it SKIPS unless TURN_WORKER_URL is set (CI has no
-  #     TURN key and filters STUN/TURN egress anyway); it validates the relay
-  #     path only where a Worker + connectivity exist. WebKit-on-Linux is not
-  #     Safari; real confirmation needs a device/cloud lab.
+  # deploys. WebKit-on-Linux is not real Safari, and TURN depends on an external
+  # service, so these stay best-effort; real confirmation needs a device.
+  #   * e2e:webkit — WebKit (Safari's engine) over loopback, with mDNS host
+  #     candidates + the TURN relay fallback (TURN_WORKER_URL below).
+  #   * e2e:turn — forces ICE through the Cloudflare TURN relay (iceTransportPolicy
+  #     'relay') and asserts two peers connect purely over it; skips only if no
+  #     Worker URL is set.
+  # The Worker URL is public (CORS-locked, no secret), so it lives here in plain
+  # text — no GitHub secret needed.
   e2e-safari:
     runs-on: ubuntu-latest
     continue-on-error: true
+    env:
+      TURN_WORKER_URL: https://chooser-turn.talarari.workers.dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

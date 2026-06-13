@@ -50,6 +50,24 @@ const canvasHasInk = (page) => page.waitForFunction(() => {
   return false
 }, null, {timeout: 20000})
 
+// A deployed TURN Worker (public URL) to use as the relay fallback, if provided.
+const TURN_WORKER_URL = process.env.TURN_WORKER_URL ?? ''
+
+// Chromium hides loopback host candidates behind mDNS `.local` names — the exact
+// shape of the iPhone bug (issue #2): the peer is handed only host candidates it
+// can't resolve. CI runners resolve multicast mDNS unreliably, so two such peers
+// often fail to pair their host candidates.
+//
+//  * With a TURN Worker configured, we KEEP mDNS obfuscation on: that reproduces
+//    the iPhone condition, and the run then proves the production TURN relay
+//    rescues the connection (the whole point of issue #2's fix).
+//  * With no Worker (offline contributors), disable mDNS so loopback host
+//    candidates still pair deterministically and the suite stays hermetic.
+function launchOptions(browserType) {
+  if (browserType.name() !== 'chromium' || TURN_WORKER_URL) return {}
+  return {args: ['--disable-features=WebRtcHideLocalIpsWithMdns']}
+}
+
 // Register the full connectivity suite for one Playwright engine.
 export function connectSuite(browserType, label) {
   describe(`${label} ↔ ${label} WebRTC`, () => {
@@ -59,10 +77,11 @@ export function connectSuite(browserType, label) {
     before(async () => {
       relay = await startRelay()
       server = await startServer(repo)
-      browser = await browserType.launch()
-      // ?turn= (empty) disables the TURN fetch so this suite stays hermetic and
-      // offline — peers connect over loopback host candidates, no Worker call.
-      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}&turn=#${ROOM}`
+      browser = await browserType.launch(launchOptions(browserType))
+      // turn= carries the Worker URL when set (mDNS-obfuscated peers then have a
+      // real relay to fall back on), or is empty for a hermetic offline run.
+      const turnParam = TURN_WORKER_URL ? encodeURIComponent(TURN_WORKER_URL) : ''
+      const url = `${server.url}/?relays=${encodeURIComponent(relay.url)}&turn=${turnParam}#${ROOM}`
 
       const open = async (name) => {
         const ctx = await browser.newContext()
