@@ -127,6 +127,26 @@ export async function connect(roomCode, {onFingers, onPick, onName, onPeerJoin, 
     appId: APP_ID,
     relayConfig: {urls: RELAY_URLS},
     turnConfig,
+    // Disable trickle ICE (issue #2, cross-network case). With trickle on,
+    // trystero sends the SDP offer/answer early and then dribbles each ICE
+    // candidate out as a separate Nostr relay message. The candidate that
+    // actually connects peers on different networks is the late-gathered TURN
+    // *relay* one — and over the eventually-consistent, lossy Nostr relay mesh
+    // those trailing per-candidate messages don't reliably reach the peer. The
+    // symptom is exactly what real devices showed: relay candidates gathered on
+    // both ends (TURN works), but the remote side stays at `ice: new` / "1
+    // device" and no data channel ever opens, so fingers never cross. Turning
+    // trickle off makes each peer wait for ICE gathering to *complete* and then
+    // send ONE offer/answer with the full candidate set (relay included) baked
+    // into the SDP — a single message instead of a fragile stream, so the relay
+    // path survives the lossy channel.
+    //
+    // This was reverted once before (commit 3ae79c3) but only because it was
+    // paired with a *dead* TURN server that stalled gathering forever and broke
+    // Chrome. That's no longer the case: Cloudflare TURN now mints working
+    // credentials and gathering reaches `complete` (visible in the HUD), so the
+    // earlier stall can't recur.
+    trickleIce: false,
     ...(forceRelayOnly() ? {rtcConfig: {iceTransportPolicy: 'relay'}} : {}),
   }, roomCode)
 
