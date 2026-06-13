@@ -1,5 +1,5 @@
-import {connect, selfId, relayStatus} from './net.js'
-import {diagSnapshot} from './diag.js'
+import {connect, selfId, relayStatus, networkDiagnostics} from './net.js'
+import {diagDetails, diagSnapshot} from './diag.js'
 import {draw} from './render.js'
 import {
   MIN_FINGERS, HOLD_MS, REVEAL_MIN_MS, REVEAL_MAX_MS,
@@ -15,6 +15,7 @@ const ctx = canvas.getContext('2d')
 const roomCodeEl = $('#room-code')
 const nameEls = [$('#name-pill'), $('#name-landing')]
 const copyStateEl = $('#copy-state')
+const diagnosticShareEl = $('#share-diagnostic')
 const peerCountEl = $('#peer-count')
 const diagEl = $('#diag')
 const bannerEl = $('#banner')
@@ -22,7 +23,11 @@ const tipEl = $('#tip')
 const errEl = $('#err')
 
 // surface runtime failures on screen — phones have no devtools handy
+const errorLog = []
+
 function showError(msg) {
+  errorLog.push({at: new Date().toISOString(), message: msg})
+  if (errorLog.length > 20) errorLog.shift()
   errEl.textContent = `⚠ ${msg}`
   errEl.hidden = false
 }
@@ -189,6 +194,82 @@ $('#room-pill').addEventListener('click', async () => {
     copyStateEl.textContent = '✓'
     setTimeout(() => (copyStateEl.textContent = '⧉'), 1500)
   } catch {}
+})
+
+function visiblePeers() {
+  const now = performance.now()
+  return [...peers.entries()].map(([peerId, peer]) => ({
+    peerId,
+    name: peer.name ?? null,
+    fingerCount: peer.fingers.size,
+    ageMs: Math.round(now - peer.ts),
+  }))
+}
+
+async function diagnosticText() {
+  const url = `${location.origin}${location.pathname}${location.search}#${roomCode ?? ''}`
+  const params = (() => {
+    try { return Object.fromEntries(new URLSearchParams(location.search)) } catch { return {} }
+  })()
+  const diagnostics = {
+    generatedAt: new Date().toISOString(),
+    url,
+    roomCode,
+    selfId,
+    myName,
+    document: {
+      visibilityState: document.visibilityState,
+      hiddenAt,
+      focused: document.hasFocus?.() ?? null,
+    },
+    runtime: {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      language: navigator.language,
+      online: navigator.onLine,
+      secureContext: window.isSecureContext,
+      devicePixelRatio: window.devicePixelRatio,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        screenWidth: screen.width,
+        screenHeight: screen.height,
+      },
+      capabilities: {
+        RTCPeerConnection: Boolean(window.RTCPeerConnection),
+        webkitRTCPeerConnection: Boolean(window.webkitRTCPeerConnection),
+        webShare: Boolean(navigator.share),
+        clipboard: Boolean(navigator.clipboard?.writeText),
+        wakeLock: Boolean(navigator.wakeLock),
+        vibrate: Boolean(navigator.vibrate),
+      },
+    },
+    query: params,
+    network: networkDiagnostics(),
+    room: {
+      hasNet: Boolean(net),
+      peerCount: peers.size,
+      peers: visiblePeers(),
+      localFingerCount: localFingers.size,
+      state,
+      isHost: isHost(),
+    },
+    webrtc: await diagDetails(),
+    errors: errorLog,
+  }
+  return `Chooser diagnostics\n\n${JSON.stringify(diagnostics, null, 2)}`
+}
+
+diagnosticShareEl.addEventListener('click', async () => {
+  try {
+    const text = await diagnosticText()
+    if (navigator.share) await navigator.share({title: 'Chooser diagnostics', text})
+    else await navigator.clipboard.writeText(text)
+    diagnosticShareEl.textContent = 'Copied'
+    setTimeout(() => (diagnosticShareEl.textContent = 'Debug'), 1500)
+  } catch (error) {
+    showError(`diagnostic share failed: ${error?.message ?? String(error)}`)
+  }
 })
 
 // ---- input ----
