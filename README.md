@@ -14,14 +14,22 @@ A multiplayer finger chooser that works **across devices** — everyone in the r
 
 You get a random name (e.g. "Lucky Otter"); tap it — on the start screen or in the room header — to rename yourself. Names are saved on your device and shown to other players when you're chosen.
 
-### Pick one vs. Groups
+### Winners vs. Groups
 
-The mode toggle in the room header switches between two outcomes:
+The mode toggle in the room header switches what the hold produces, and the stepper sets the count:
 
-- **Pick one** (default): the original behavior — one finger is chosen as the winner.
-- **Groups**: choose how many groups (2–8) with the stepper. Every finger starts **uncolored**, and instead of a winner the same 3-second hold **divides the fingers into that many evenly-sized groups**, coloring and numbering each one. Great for splitting a crowd into teams.
+- **Winners** (default, count **1**): the classic behavior — one finger is chosen. Bump the count to pick several winners at once (each one lights up).
+- **Groups**: choose how many groups (2–8). Every finger starts **uncolored**, and instead of winners the same 3-second hold **divides the fingers into that many evenly-sized groups**, coloring and numbering each one. Great for splitting a crowd into teams.
 
-The mode is a shared room setting — changing it (or the group count) syncs to everyone, and the host's choice drives each round.
+The mode and count are a shared room setting — changing them syncs to everyone, and the host's choice drives each round.
+
+## Design principles
+
+The north star is **least setup to first round** — the fastest path from "let's play" to a result. A few rules follow from that:
+
+- **A finger is the unit of play — not a person, not a device.** This is deliberate: several people can share one phone (gather round, each hold a finger), so a group only needs *one* device. Local play (everyone in the room), remote play, and **hybrid** play (some friends together in person, another group together elsewhere) all work with whatever phones happen to be out — **one device per *location*, not per player**.
+- **No install-per-person, no accounts, no server, no build step.** Pure static files; peers connect directly over WebRTC. Keep it that way unless there's an overwhelming reason not to.
+- **Anti-goals:** anything that pushes toward one-device-per-person trades the app's core ease of use for marginal gains. For example, picking a winning *player* instead of a winning *finger* (it breaks shared-device play), or gating a round behind everyone having joined. Don't.
 
 ## Run locally
 
