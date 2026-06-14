@@ -1,6 +1,7 @@
 import {connect, selfId, relayStatus, networkDiagnostics} from './net.js'
 import {diagDetails, diagSnapshot} from './diag.js'
 import {draw} from './render.js'
+import {playCountdownTick, playWinnerReveal, playGroupReveal} from './audio.js'
 import {
   MIN_FINGERS, HOLD_MS, REVEAL_MIN_MS, REVEAL_MAX_MS,
   MIN_GROUPS, MAX_GROUPS, MIN_WINNERS, MAX_WINNERS, NEUTRAL_COLOR,
@@ -53,6 +54,7 @@ let state = 'idle' // idle | armed | picked
 let stableSince = 0
 let lastSig = ''
 let progress = 0
+let tickStep = 0 // countdown milestone: 0=none, 1=start, 2=33%, 3=66%
 let winners = [] // [{key, peerId, px, py, local, color}] — set in 'winners' mode
 let groupAssignment = null // Map<fingerKey, groupIndex> — set in 'groups' mode
 let groupFingers = [] // picked-time finger snapshot for lingering groups reveal
@@ -496,6 +498,7 @@ function applyGroup({seed, keys, count}) {
   state = 'picked'
   pickedAt = now
   navigator.vibrate?.(40)
+  playGroupReveal()
   bannerEl.hidden = false
   bannerEl.style.color = '' // group reveal has no single color; use the default
   bannerEl.textContent = `Split into ${count} group${count === 1 ? '' : 's'}`
@@ -523,6 +526,7 @@ function applyPick({seed, keys, count}) {
   pickedAt = now
   const localWon = winners.some((w) => w.local)
   navigator.vibrate?.(localWon ? [80, 60, 160] : 30)
+  playWinnerReveal(localWon)
   bannerEl.hidden = false
   if (winners.length === 1) {
     // Single-winner wording is load-bearing (e2e asserts on it) — keep it exact.
@@ -541,6 +545,7 @@ function reset() {
   groupAssignment = null
   groupFingers = []
   progress = 0
+  tickStep = 0
   stableSince = performance.now()
   bannerEl.hidden = true
 }
@@ -580,8 +585,22 @@ function tick() {
     if (sig !== lastSig) stableSince = now
     lastSig = sig
     if (fingers.length >= MIN_FINGERS) {
+      const wasArmed = state === 'armed'
       state = 'armed'
       progress = (now - stableSince) / HOLD_MS
+      if (!wasArmed) {
+        tickStep = 1
+        playCountdownTick(0)
+        navigator.vibrate?.(10)
+      } else if (progress >= 0.66 && tickStep < 3) {
+        tickStep = 3
+        playCountdownTick(2)
+        navigator.vibrate?.(25)
+      } else if (progress >= 0.33 && tickStep < 2) {
+        tickStep = 2
+        playCountdownTick(1)
+        navigator.vibrate?.(15)
+      }
       if (progress >= 1 && isHost()) {
         if (mode === 'groups') doGroup(fingers)
         else doPick(fingers) // winners mode
@@ -589,6 +608,7 @@ function tick() {
     } else {
       state = 'idle'
       progress = 0
+      tickStep = 0
     }
   }
 
