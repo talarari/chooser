@@ -13,13 +13,23 @@ const APP_ID = 'finger-chooser-webrtc-v1'
 
 // Pin well-established public relays instead of trystero's appId-derived
 // default picks, which proved unreliable for peer discovery in practice.
+//
+// Curated to relays that reliably ACCEPT trystero's ephemeral signaling. Every
+// trickled ICE candidate is published to every relay per peer, so a hostile
+// relay isn't just dead weight — its rejections are pure flood with no payoff.
+// Dropped on real-device evidence (iPhone, room 5KM3): relay.damus.io
+// ("rate-limited: you are noting too much" — refused 13 of 20 publishes) and
+// relay02.lnfi.network ("rate-limited: slow down") throttled us; offchain.pub
+// hard-rejects anonymous events ("Policy violated and pubkey is not in our web
+// of trust"); relay.nostr.band never finished connecting. The relays below all
+// accepted ~100 publishes and delivered peer traffic back in the same capture.
 const PINNED_RELAY_URLS = [
-  'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.primal.net',
-  'wss://offchain.pub',
   'wss://nostr.mom',
-  'wss://relay.nostr.band',
+  'wss://relay.agorist.space',
+  'wss://hol.is',
+  'wss://koru.bitcointxoko.org',
 ]
 
 // Always-on fallback in case the pinned list rots: a draw from trystero's
@@ -49,7 +59,11 @@ function relayOverride() {
   return null
 }
 
-const RELAY_URLS = relayOverride() ?? [...PINNED_RELAY_URLS, ...fallbackRelays(4)]
+// Six curated relays already give ample discovery redundancy; the fallback is
+// just insurance against the pinned list rotting, so keep it small — every
+// extra relay multiplies the per-candidate publish fan-out (the flood we're
+// trimming), and an undrawn-quality relay can re-introduce rejections.
+const RELAY_URLS = relayOverride() ?? [...PINNED_RELAY_URLS, ...fallbackRelays(2)]
 
 // TURN relay. STUN-only candidates fail when two peers can't reach each other
 // directly: most painfully iPhone Safari, which gathers only mDNS `.local` host

@@ -128,8 +128,8 @@ test('joining from the URL hash wires up the room', () => {
     'pinned relay list should be passed to trystero')
   const urls = globalThis.__mock.config.relayConfig.urls
   assert.equal(new Set(urls).size, urls.length, 'relay list should have no duplicates')
-  assert.equal(urls.filter((u) => u.startsWith('wss://d')).length, 4,
-    'four fallback relays should be drawn from the default pool')
+  assert.equal(urls.filter((u) => u.startsWith('wss://d')).length, 2,
+    'two fallback relays should be drawn from the default pool')
   assert.equal(typeof globalThis.__mock.actions.fingers.onMessage, 'function')
   assert.equal(typeof globalThis.__mock.actions.pick.onMessage, 'function')
   assert.equal(typeof globalThis.__mock.actions.name.onMessage, 'function')
