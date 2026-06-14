@@ -642,6 +642,35 @@ function resize() {
 
 window.addEventListener('resize', resize)
 
+// ---- PWA install ----
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {})
+}
+
+const installBarEl = $('#install-bar')
+const installBtnEl = $('#install-btn')
+let installPrompt = null
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault()
+  installPrompt = e
+  installBarEl.hidden = false
+})
+
+installBtnEl.addEventListener('click', async () => {
+  if (!installPrompt) return
+  installPrompt.prompt()
+  const {outcome} = await installPrompt.userChoice
+  if (outcome === 'accepted') installBarEl.hidden = true
+  installPrompt = null
+})
+
+window.addEventListener('appinstalled', () => {
+  installBarEl.hidden = true
+  installPrompt = null
+})
+
 async function requestWakeLock() {
   try {
     const lock = await navigator.wakeLock?.request('screen')
