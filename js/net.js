@@ -5,6 +5,7 @@
 import {joinRoom, selfId, getRelaySockets, defaultRelayUrls} from '../vendor/trystero-nostr.min.js'
 import {hashStr, mulberry32} from './chooser.js'
 import './diag.js' // installs the RTCPeerConnection wrap before any joinRoom()
+import {nostrDiagnostics} from './relaydiag.js' // wraps relay WebSockets, same timing
 
 export {selfId}
 
@@ -163,6 +164,10 @@ export function networkDiagnostics() {
     })),
     turn: lastTurnFetch,
     forceRelayOnly: forceRelayOnly(),
+    // Discovery layer (relaydiag.js): whether announce traffic actually crosses
+    // the relays. `nostr.distinctPubkeys` >= 2 means the peer's announce is
+    // arriving; stuck at 1 means we're alone on the wire despite open sockets.
+    nostr: nostrDiagnostics(),
   }
 }
 
