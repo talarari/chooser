@@ -591,15 +591,15 @@ function tick() {
       if (!wasArmed) {
         tickStep = 1
         playCountdownTick(0)
-        navigator.vibrate?.(10)
+        navigator.vibrate?.(50)
       } else if (progress >= 0.66 && tickStep < 3) {
         tickStep = 3
         playCountdownTick(2)
-        navigator.vibrate?.(25)
+        navigator.vibrate?.(80)
       } else if (progress >= 0.33 && tickStep < 2) {
         tickStep = 2
         playCountdownTick(1)
-        navigator.vibrate?.(15)
+        navigator.vibrate?.(60)
       }
       if (progress >= 1 && isHost()) {
         if (mode === 'groups') doGroup(fingers)
