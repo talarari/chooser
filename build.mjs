@@ -17,6 +17,9 @@ execSync(
 )
 
 cpSync('styles.css', `${out}/styles.css`)
+cpSync('manifest.json', `${out}/manifest.json`)
+cpSync('sw.js', `${out}/sw.js`)
+cpSync('icon.svg', `${out}/icon.svg`)
 writeFileSync(`${out}/.nojekyll`, '')
 
 const html = readFileSync('index.html', 'utf8')
