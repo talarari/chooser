@@ -323,7 +323,6 @@ async function diagnosticText() {
         webShare: Boolean(navigator.share),
         clipboard: Boolean(navigator.clipboard?.writeText),
         wakeLock: Boolean(navigator.wakeLock),
-        vibrate: Boolean(navigator.vibrate),
       },
     },
     query: params,
@@ -497,7 +496,6 @@ function applyGroup({seed, keys, count}) {
   winners = []
   state = 'picked'
   pickedAt = now
-  navigator.vibrate?.(40)
   playGroupReveal()
   bannerEl.hidden = false
   bannerEl.style.color = '' // group reveal has no single color; use the default
@@ -525,7 +523,6 @@ function applyPick({seed, keys, count}) {
   state = 'picked'
   pickedAt = now
   const localWon = winners.some((w) => w.local)
-  navigator.vibrate?.(localWon ? [80, 60, 160] : 30)
   playWinnerReveal(localWon)
   bannerEl.hidden = false
   if (winners.length === 1) {
@@ -591,15 +588,12 @@ function tick() {
       if (!wasArmed) {
         tickStep = 1
         playCountdownTick(0)
-        navigator.vibrate?.(50)
       } else if (progress >= 0.66 && tickStep < 3) {
         tickStep = 3
         playCountdownTick(2)
-        navigator.vibrate?.(80)
       } else if (progress >= 0.33 && tickStep < 2) {
         tickStep = 2
         playCountdownTick(1)
-        navigator.vibrate?.(60)
       }
       if (progress >= 1 && isHost()) {
         if (mode === 'groups') doGroup(fingers)
